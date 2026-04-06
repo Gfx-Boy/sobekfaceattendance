@@ -1,0 +1,17 @@
+{
+  "id": "693933d1-889a-4b58-8781-5a809011734f",
+  "name": "Hasan",
+  "email": "hasan@aenfinite.com",
+  "department": "Management",
+  "role": "superAdmin",
+  "employee_type": "general",
+  "position": "Super Administrator",
+  "branch_id": "main",
+  "branch_name": "Head Office",
+  "phone": "",
+  "address": "",
+  "profile_image_url": "",
+  "reference_image_key": "",
+  "reference_image_url": "",
+  "created_at": "2026-03-14T15:35:53.078Z"
+}

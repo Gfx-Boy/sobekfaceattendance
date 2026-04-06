@@ -1,0 +1,24 @@
+{
+  "name": "face-attendance-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Face Attendance Application",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-rekognition": "^3.500.0",
+    "@aws-sdk/client-s3": "^3.500.0",
+    "@aws-sdk/client-sts": "^3.1009.0",
+    "@aws-sdk/credential-providers": "^3.1009.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "express": "^4.18.2",
+    "firebase-admin": "^13.7.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
+  }
+}
