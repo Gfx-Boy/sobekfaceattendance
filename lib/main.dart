@@ -59,7 +59,10 @@ class FaceAttendanceApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AttendanceProvider()),
       ],
       child: Consumer2<ThemeProvider, LocaleProvider>(
-        builder: (context, themeProvider, localeProvider, child) => MaterialApp(
+        builder: (context, themeProvider, localeProvider, child) {
+          // Ensure S static locale is always in sync with provider
+          S.setLocale(localeProvider.locale);
+          return MaterialApp(
         title: 'Sobek',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
@@ -104,7 +107,8 @@ class FaceAttendanceApp extends StatelessWidget {
           }
           return null;
         },
-        ),
+        );
+        },
       ),
     );
   }

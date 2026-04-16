@@ -438,11 +438,13 @@ class ApiService {
         throw ApiException('Failed to create task (${response.statusCode})');
       });
 
-  Future<Task> updateTaskStatus(String taskId, String status) => _call(() async {
+  Future<Task> updateTaskStatus(String taskId, String status, {String? comment}) => _call(() async {
+        final body = <String, dynamic>{'status': status};
+        if (comment != null && comment.isNotEmpty) body['comment'] = comment;
         final response = await _client
             .patch(Uri.parse('$baseUrl/tasks/$taskId'),
                 headers: _headers,
-                body: json.encode({'status': status}))
+                body: json.encode(body))
             .timeout(AppConfig.apiTimeout);
         if (response.statusCode == 200) {
           return Task.fromJson(json.decode(response.body) as Map<String, dynamic>);
@@ -475,6 +477,9 @@ class ApiService {
     String workingHoursEnd = '18:00',
     int breakDurationMinutes = 60,
     List<String> workingDays = Branch.defaultWorkingDays,
+    double deductionLate = 0,
+    double deductionEarlyOut = 0,
+    double deductionAbsent = 0,
   }) =>
       _call(() async {
         final response = await _client
@@ -492,6 +497,9 @@ class ApiService {
                   'working_hours_end': workingHoursEnd,
                   'break_duration_minutes': breakDurationMinutes,
                   'working_days': workingDays,
+                  'deduction_late': deductionLate,
+                  'deduction_early_out': deductionEarlyOut,
+                  'deduction_absent': deductionAbsent,
                 }))
             .timeout(AppConfig.apiTimeout);
         if (response.statusCode == 200 || response.statusCode == 201) {

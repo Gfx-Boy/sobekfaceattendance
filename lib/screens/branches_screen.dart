@@ -319,6 +319,9 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         workingHoursEnd: endStr,
                         breakDurationMinutes: int.tryParse(breakController.text) ?? 60,
                         workingDays: selectedDays,
+                        deductionLate: double.tryParse(lateDeductionCtl.text) ?? 0,
+                        deductionEarlyOut: double.tryParse(earlyOutDeductionCtl.text) ?? 0,
+                        deductionAbsent: double.tryParse(absentDeductionCtl.text) ?? 0,
                       );
                     }
                     _loadBranches();

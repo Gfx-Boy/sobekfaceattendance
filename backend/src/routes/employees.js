@@ -137,10 +137,12 @@ function tokenExpiresInSeconds(token) {
 }
 
 function issueAuthTokens(emp) {
+  const sessionId = uuidv4();
   const payload = {
     sub: emp.id,
     email: emp.email,
     role: emp.role || 'employee',
+    jti: sessionId,
   };
 
   const accessToken = jwt.sign(payload, ACCESS_TOKEN_SECRET, {
@@ -155,6 +157,7 @@ function issueAuthTokens(emp) {
     refreshToken,
     accessExpiresIn: tokenExpiresInSeconds(accessToken),
     refreshExpiresIn: tokenExpiresInSeconds(refreshToken),
+    sessionId,
   };
 }
 
@@ -368,11 +371,11 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your account is on hold. Please contact your administrator.' });
     }
 
-    // Update last_online
-    emp.last_online = new Date().toISOString();
-    await putJSON(employeeKey(id), emp);
-
+    // Update last_online and active session
     const tokens = issueAuthTokens(emp);
+    emp.last_online = new Date().toISOString();
+    emp.active_session_id = tokens.sessionId;
+    await putJSON(employeeKey(id), emp);
 
     res.json({
       employee: serializeEmployee(emp),
@@ -410,6 +413,9 @@ router.post('/refresh-token', async (req, res) => {
     }
 
     const tokens = issueAuthTokens(emp);
+    emp.active_session_id = tokens.sessionId;
+    emp.last_online = new Date().toISOString();
+    await putJSON(employeeKey(payload.sub), emp);
 
     res.json({
       employee: serializeEmployee(emp),

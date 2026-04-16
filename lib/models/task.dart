@@ -18,6 +18,10 @@ class Task {
   final DateTime createdAt;
   final List<String>? attachments;
   final String? comment;
+  final String? completionComment;
+  final List<String>? completionAttachments;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
 
   Task({
     required this.id,
@@ -32,6 +36,10 @@ class Task {
     required this.createdAt,
     this.attachments,
     this.comment,
+    this.completionComment,
+    this.completionAttachments,
+    this.startedAt,
+    this.completedAt,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -53,6 +61,12 @@ class Task {
           ?.map((e) => e as String)
           .toList(),
       comment: json['comment'] as String?,
+      completionComment: json['completion_comment'] as String?,
+      completionAttachments: (json['completion_attachments'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList(),
+      startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
+      completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
     );
   }
 
@@ -70,6 +84,10 @@ class Task {
       'created_at': createdAt.toIso8601String(),
       'attachments': attachments,
       'comment': comment,
+      'completion_comment': completionComment,
+      'completion_attachments': completionAttachments,
+      'started_at': startedAt?.toIso8601String(),
+      'completed_at': completedAt?.toIso8601String(),
     };
   }
 

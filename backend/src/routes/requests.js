@@ -9,6 +9,8 @@ const router = express.Router();
 const requestKey = (id) => `data/requests/request-${id}.json`;
 const requestsByEmployeePrefix = (empId) => `data/requests-by-employee/${empId}/`;
 const requestPointerKey = (empId, id) => `data/requests-by-employee/${empId}/request-${id}.json`;
+const attendanceRecordKey = (employeeId, recordId) =>
+  `data/attendance/${employeeId}/record-${recordId}.json`;
 
 // POST /api/requests — create a new request
 router.post('/', async (req, res) => {
@@ -150,6 +152,37 @@ router.patch('/:id/review', async (req, res) => {
     request.reviewed_at = new Date().toISOString();
 
     await putJSON(requestKey(req.params.id), request);
+
+    // If approved and it's a leave/vacation/permission, reflect in attendance sheet
+    if (status === 'approved' && request.employee_id) {
+      try {
+        const isAttendanceRelated = ['vacation', 'leave', 'permission', 'businessMission'].includes(request.type);
+        if (isAttendanceRelated && request.start_date) {
+          const start = new Date(request.start_date);
+          const end = request.end_date ? new Date(request.end_date) : start;
+          const dayStatus = request.type === 'vacation' ? 'vacation' : 'vacation';
+          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            const recordId = `day-status-${dateStr}`;
+            const record = {
+              id: recordId,
+              employee_id: request.employee_id,
+              type: 'day_status',
+              day_status: dayStatus,
+              date: dateStr,
+              timestamp: new Date().toISOString(),
+              status: 'success',
+              set_by_admin: true,
+              source_request_id: request.id,
+              source_request_type: request.type,
+            };
+            await putJSON(attendanceRecordKey(request.employee_id, recordId), record);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to reflect request in attendance:', e.message);
+      }
+    }
 
     // Send push notification to request owner
     if (request.employee_id) {
