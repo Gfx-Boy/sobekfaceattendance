@@ -9,7 +9,7 @@ const branchKey = (id) => `data/branches/branch-${id}.json`;
 // POST /api/branches — create a branch
 router.post('/', async (req, res) => {
   try {
-    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days } = req.body;
+    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, weekend_days } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Branch name is required' });
@@ -41,6 +41,10 @@ router.post('/', async (req, res) => {
       working_hours_end: working_hours_end || '18:00',
       break_duration_minutes: break_duration_minutes || 60,
       working_days: working_days || ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+      weekend_days: weekend_days || ['Friday', 'Saturday'],
+      deduction_late: deduction_late || 0,
+      deduction_early_out: deduction_early_out || 0,
+      deduction_absent: deduction_absent || 0,
       employee_count: 0,
       created_at: new Date().toISOString(),
     };
@@ -89,7 +93,7 @@ router.put('/:id', async (req, res) => {
     const branch = await getJSON(branchKey(req.params.id));
     if (!branch) return res.status(404).json({ error: 'Branch not found' });
 
-    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days } = req.body;
+    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, weekend_days } = req.body;
 
     // If renaming, check uniqueness
     if (name !== undefined && name.toLowerCase() !== (branch.name || '').toLowerCase()) {
@@ -116,6 +120,10 @@ router.put('/:id', async (req, res) => {
     if (working_hours_end !== undefined) branch.working_hours_end = working_hours_end;
     if (break_duration_minutes !== undefined) branch.break_duration_minutes = break_duration_minutes;
     if (working_days !== undefined) branch.working_days = working_days;
+    if (deduction_late !== undefined) branch.deduction_late = deduction_late;
+    if (deduction_early_out !== undefined) branch.deduction_early_out = deduction_early_out;
+    if (deduction_absent !== undefined) branch.deduction_absent = deduction_absent;
+    if (weekend_days !== undefined) branch.weekend_days = weekend_days;
     branch.updated_at = new Date().toISOString();
 
     await putJSON(branchKey(req.params.id), branch);

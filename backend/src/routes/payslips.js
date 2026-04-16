@@ -1,6 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { putJSON, getJSON, listJSON } = require('../services/s3Service');
+const notificationRoutes = require('./notifications');
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const payslipPointerKey = (empId, id) => `data/payslips-by-employee/${empId}/pay
 // POST /api/payslips — create a payslip (admin/HR)
 router.post('/', async (req, res) => {
   try {
-    const { employee_id, employee_name, period, basic_salary, bonuses, deductions, overtime_pay, net_salary, payment_date, notes } = req.body;
+    const { employee_id, employee_name, period, basic_salary, bonuses, deductions, overtime_pay, net_salary, payment_date, notes, created_by, branch_id } = req.body;
 
     if (!employee_id || !period || basic_salary === undefined) {
       return res.status(400).json({ error: 'employee_id, period, and basic_salary are required' });
@@ -30,11 +31,21 @@ router.post('/', async (req, res) => {
       net_salary: Number(net_salary) || (Number(basic_salary) + Number(bonuses || 0) + Number(overtime_pay || 0) - Number(deductions || 0)),
       payment_date: payment_date || null,
       notes: notes || '',
+      created_by: created_by || null,
+      branch_id: branch_id || null,
       created_at: new Date().toISOString(),
     };
 
     await putJSON(payslipKey(id), payslip);
     await putJSON(payslipPointerKey(employee_id, id), { id });
+
+    // Notify employee about new payslip
+    notificationRoutes.sendPushToEmployee(
+      employee_id,
+      'New Payslip Available',
+      `Your payslip for ${period} is now available`,
+      { type: 'payslip_created', payslip_id: id }
+    ).catch(e => console.error('Push failed:', e.message));
 
     res.status(201).json(payslip);
   } catch (error) {

@@ -60,9 +60,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<void> _updateStatus(Task task, String newStatus) async {
+  Future<void> _updateStatus(Task task, String newStatus, {String? comment}) async {
     try {
-      await ApiService().updateTaskStatus(task.id, newStatus);
+      await ApiService().updateTaskStatus(task.id, newStatus, comment: comment);
       _loadTasks();
     } catch (e) {
       if (mounted) {
@@ -70,6 +70,46 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
           SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.checkOutRed),
         );
       }
+    }
+  }
+
+  Future<void> _showCompletionDialog(Task task, String newStatus) async {
+    final commentController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(newStatus == 'done' ? S.done : S.failed),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              newStatus == 'done' ? 'Add a completion comment (optional):' : 'Add a reason (optional):',
+              style: TextStyle(color: context.colors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: commentController,
+              maxLines: 3,
+              style: TextStyle(color: context.colors.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Comment...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(S.confirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      _updateStatus(task, newStatus, comment: commentController.text.trim().isEmpty ? null : commentController.text.trim());
     }
   }
 
@@ -387,64 +427,132 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
     final isOverdue = task.dueDate.isBefore(DateTime.now()) && task.status != TaskStatus.done;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: context.colors.cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: isOverdue ? AppTheme.checkOutRed.withValues(alpha: 0.5) : context.colors.surfaceBorder, width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(statusIcon, color: statusColor, size: 20),
-              SizedBox(width: 8),
-              Expanded(child: Text(task.title, style: TextStyle(color: context.colors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600))),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
-                child: Text(task.statusDisplayName, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-          if (task.description.isNotEmpty) ...[
-            SizedBox(height: 6),
-            Text(task.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
-          ],
-          SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(Icons.calendar_today, size: 12, color: isOverdue ? AppTheme.checkOutRed : context.colors.textMuted),
-              SizedBox(width: 4),
-              Text(
-                '${S.dueDate}: ${task.dueDate.day}/${task.dueDate.month}/${task.dueDate.year}',
-                style: TextStyle(color: isOverdue ? AppTheme.checkOutRed : context.colors.textMuted, fontSize: 11),
-              ),
-              if (isOverdue) ...[
-                const SizedBox(width: 6),
-                Text(S.overdue, style: TextStyle(color: AppTheme.checkOutRed, fontSize: 10, fontWeight: FontWeight.bold)),
-              ],
-            ],
-          ),
-          if (showActions && task.status != TaskStatus.done && task.status != TaskStatus.failed) ...[
-            const SizedBox(height: 10),
+    return GestureDetector(
+      onTap: () => _showTaskDetail(task),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: context.colors.cardBg,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isOverdue ? AppTheme.checkOutRed.withValues(alpha: 0.5) : context.colors.surfaceBorder, width: 0.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               children: [
-                if (task.status == TaskStatus.toDo)
-                  _statusButton(S.startTask, AppTheme.primaryBlue, () => _updateStatus(task, 'inProgress')),
-                if (task.status == TaskStatus.inProgress) ...[
-                  _statusButton(S.done, AppTheme.accentGreen, () => _updateStatus(task, 'done')),
-                  const SizedBox(width: 8),
-                  _statusButton(S.failed, AppTheme.checkOutRed, () => _updateStatus(task, 'failed')),
+                Icon(statusIcon, color: statusColor, size: 20),
+                SizedBox(width: 8),
+                Expanded(child: Text(task.title, style: TextStyle(color: context.colors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(4)),
+                  child: Text(task.statusDisplayName, style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+            if (task.description.isNotEmpty) ...[
+              SizedBox(height: 6),
+              Text(task.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
+            SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.calendar_today, size: 12, color: isOverdue ? AppTheme.checkOutRed : context.colors.textMuted),
+                SizedBox(width: 4),
+                Text(
+                  '${S.dueDate}: ${task.dueDate.day}/${task.dueDate.month}/${task.dueDate.year}',
+                  style: TextStyle(color: isOverdue ? AppTheme.checkOutRed : context.colors.textMuted, fontSize: 11),
+                ),
+                if (isOverdue) ...[
+                  const SizedBox(width: 6),
+                  Text(S.overdue, style: TextStyle(color: AppTheme.checkOutRed, fontSize: 10, fontWeight: FontWeight.bold)),
                 ],
               ],
             ),
+            if (showActions && task.status != TaskStatus.done && task.status != TaskStatus.failed) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (task.status == TaskStatus.toDo)
+                    _statusButton(S.startTask, AppTheme.primaryBlue, () => _updateStatus(task, 'inProgress')),
+                  if (task.status == TaskStatus.inProgress) ...[
+                    _statusButton(S.done, AppTheme.accentGreen, () => _showCompletionDialog(task, 'done')),
+                    const SizedBox(width: 8),
+                    _statusButton(S.failed, AppTheme.checkOutRed, () => _showCompletionDialog(task, 'failed')),
+                  ],
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
+    );
+  }
+
+  void _showTaskDetail(Task task) {
+    Color statusColor = _statusColor(task.status);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.colors.cardBg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        maxChildSize: 0.85,
+        minChildSize: 0.3,
+        builder: (_, controller) => SingleChildScrollView(
+          controller: controller,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: context.colors.surfaceBorder, borderRadius: BorderRadius.circular(2)))),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: Text(task.title, style: TextStyle(color: context.colors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold))),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                  child: Text(task.statusDisplayName, style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 12)),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              if (task.description.isNotEmpty)
+                Text(task.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 14)),
+              const SizedBox(height: 12),
+              _detailRow(Icons.person_outline, S.assignedBy, task.assignedByName ?? task.assignedBy),
+              _detailRow(Icons.person, 'Assigned To', task.assignedToName ?? task.assignedTo),
+              _detailRow(Icons.calendar_today, S.dueDate, '${task.dueDate.day}/${task.dueDate.month}/${task.dueDate.year}'),
+              _detailRow(Icons.access_time, S.createdAt, '${task.createdAt.day}/${task.createdAt.month}/${task.createdAt.year}'),
+              if (task.startedAt != null)
+                _detailRow(Icons.play_arrow, 'Started', '${task.startedAt!.day}/${task.startedAt!.month}/${task.startedAt!.year}'),
+              if (task.completedAt != null)
+                _detailRow(Icons.flag, 'Completed', '${task.completedAt!.day}/${task.completedAt!.month}/${task.completedAt!.year}'),
+              if (task.completionComment != null && task.completionComment!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('Completion Comment:', style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(task.completionComment!, style: TextStyle(color: context.colors.textSecondary, fontSize: 13)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        Icon(icon, size: 16, color: context.colors.textMuted),
+        SizedBox(width: 8),
+        Text('$label: ', style: TextStyle(color: context.colors.textMuted, fontSize: 13)),
+        Expanded(child: Text(value, style: TextStyle(color: context.colors.textPrimary, fontSize: 13))),
+      ]),
     );
   }
 

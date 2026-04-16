@@ -117,14 +117,36 @@ router.patch('/:id', async (req, res) => {
     const task = await getJSON(taskKey(req.params.id));
     if (!task) return res.status(404).json({ error: 'Task not found' });
 
-    const { status, title, description, due_date } = req.body;
-    if (status) task.status = status;
+    const { status, title, description, due_date, comment, attachments } = req.body;
+    if (status) {
+      task.status = status;
+      // Record when status changed
+      if (status === 'inProgress' && !task.started_at) {
+        task.started_at = new Date().toISOString();
+      }
+      if (status === 'done' || status === 'failed') {
+        task.completed_at = new Date().toISOString();
+        if (comment) task.completion_comment = comment;
+        if (attachments) task.completion_attachments = attachments;
+      }
+    }
     if (title) task.title = title;
     if (description !== undefined) task.description = description;
     if (due_date) task.due_date = due_date;
     task.updated_at = new Date().toISOString();
 
     await putJSON(taskKey(req.params.id), task);
+
+    // Notify assigner when task status changes to done/failed
+    if ((status === 'done' || status === 'failed') && task.assigned_by) {
+      notificationRoutes.sendPushToEmployee(
+        task.assigned_by,
+        `Task ${status === 'done' ? 'Completed' : 'Failed'}`,
+        `Task "${task.title}" has been marked as ${status}`,
+        { type: 'task_status', task_id: task.id }
+      ).catch(e => console.error('Push failed:', e.message));
+    }
+
     res.json(task);
   } catch (error) {
     console.error('Update task error:', error);

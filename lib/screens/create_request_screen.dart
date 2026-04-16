@@ -344,7 +344,6 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         ];
 
       case 'leave':
-      case 'leavePermission':
         return [
           DropdownButtonFormField<String>(
             value: _leaveReason,

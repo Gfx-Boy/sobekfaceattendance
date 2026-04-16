@@ -208,12 +208,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     if (role == UserRole.superAdmin) ...[
                       _QuickAction(
-                        icon: Icons.person_add_outlined,
-                        label: S.addEmployee,
-                        color: const Color(0xFFEC4899),
-                        onTap: () => Navigator.pushNamed(context, '/add-employee'),
-                      ),
-                      _QuickAction(
                         icon: Icons.settings,
                         label: S.systemSettings,
                         color: const Color(0xFF7E8C8D),
