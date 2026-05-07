@@ -107,12 +107,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(S.pickLocation),
-        actions: [
-          TextButton(
-            onPressed: _confirm,
-            child: const Text('Confirm', style: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-        ],
       ),
       body: Stack(
         children: [
@@ -176,7 +170,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                   Expanded(
                     child: Text(
                       _pickedLocation == null
-                          ? 'Tap the map to set the work location'
+                          ? S.tapMapToSetLocation
                           : 'Lat: ${_pickedLocation!.latitude.toStringAsFixed(5)}, Lng: ${_pickedLocation!.longitude.toStringAsFixed(5)}',
                       style: const TextStyle(color: Colors.white, fontSize: 12),
                     ),
@@ -191,8 +185,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+            child: SafeArea(
+              top: false,
+              child: Container(
+              padding: EdgeInsets.fromLTRB(16, 14, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
               decoration: BoxDecoration(
                 color: context.colors.scaffoldBg,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -202,10 +198,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('Allowed Radius', style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15)),
+                  Text(S.allowedRadius, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15)),
                   SizedBox(height: 4),
                   Text(
-                    'Employee must be within ${_radius.toInt()} meters to mark attendance',
+                    S.geofenceRadiusHint(_radius.toInt()),
                     style: TextStyle(color: context.colors.textMuted, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
@@ -239,8 +235,26 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                       }).toList(),
                     ),
                   ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _confirm,
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: Text(S.confirmLocation),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
+            ),
             ),
           ),
 

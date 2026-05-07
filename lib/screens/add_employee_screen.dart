@@ -10,6 +10,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'location_picker_screen.dart';
 import '../l10n/app_localizations.dart';
+import '../widgets/blocking_overlay.dart';
 
 class AddEmployeeScreen extends StatefulWidget {
   const AddEmployeeScreen({super.key});
@@ -123,6 +124,15 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
       return;
     }
 
+    // Location is required for every new employee (#38)
+    if (!_enableGeofence ||
+        _latitudeController.text.trim().isEmpty ||
+        _longitudeController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.locationRequired), backgroundColor: AppTheme.checkOutRed),
+      );
+      return;
+    }
 
     setState(() => _loading = true);
     try {
@@ -168,7 +178,10 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(S.addEmployeeTitle)),
-      body: SingleChildScrollView(
+      body: BlockingOverlay(
+        blocking: _loading,
+        message: S.savingChanges,
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
@@ -298,6 +311,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

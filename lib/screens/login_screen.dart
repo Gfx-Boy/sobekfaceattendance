@@ -19,6 +19,11 @@ String _friendlyError(String? raw) {
       e.contains('timeout')) {
     return S.loginErrorNoInternet;
   }
+  if (e.contains('account is on hold')) return S.loginErrorAccountOnHold;
+  if (e.contains('branch') && e.contains('on hold')) return S.loginErrorBranchOnHold;
+  if (e.contains('branch') && e.contains('closed')) return S.loginErrorBranchClosed;
+  if (e.contains('branch') && e.contains('deleted')) return S.loginErrorBranchDeleted;
+  if (e.contains('another device') || e.contains('logged in on another')) return S.loginErrorAnotherDevice;
   if (e.contains('401') ||
       e.contains('403') ||
       e.contains('invalid') ||

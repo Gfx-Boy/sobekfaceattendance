@@ -19,17 +19,23 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
   List<AppRequest> _myRequests = [];
   bool _loading = true;
   late TabController _tabController;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.toLowerCase());
+    });
     _loadMyRequests();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -44,8 +50,15 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
     if (mounted) setState(() => _loading = false);
   }
 
-  List<AppRequest> _filterByStatus(String status) =>
-      _myRequests.where((r) => r.status.name == status).toList();
+  List<AppRequest> _filterByStatus(String status) {
+    Iterable<AppRequest> base = _myRequests.where((r) => r.status.name == status);
+    if (_searchQuery.isNotEmpty) {
+      base = base.where((r) =>
+          r.title.toLowerCase().contains(_searchQuery) ||
+          r.description.toLowerCase().contains(_searchQuery));
+    }
+    return base.toList();
+  }
 
   void _openCreateRequest(String category, String type) {
     Navigator.pushNamed(context, '/create-request', arguments: {
@@ -78,65 +91,65 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
       body: Column(
         children: [
           if (canCreateRequests) ...[
-            // Request creation section - scrollable top part
+            // Creation-only view; "My Requests" lives on its own screen.
             Expanded(
-              child: NestedScrollView(
-                headerSliverBuilder: (ctx, _) => [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(S.itRequests, style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 12),
-                          _buildRequestGrid([
-                            _RequestItem(icon: Icons.alternate_email, label: S.emailUserAccount, color: AppTheme.primaryBlue, category: 'IT', type: 'emailAndUserAccount'),
-                            _RequestItem(icon: Icons.security, label: S.accessRight, color: AppTheme.accentGreen, category: 'IT', type: 'accessRight'),
-                            _RequestItem(icon: Icons.devices, label: S.equipment, color: AppTheme.warningAmber, category: 'IT', type: 'equipment'),
-                            _RequestItem(icon: Icons.apps, label: S.applications, color: AppTheme.checkOutPink, category: 'IT', type: 'applications'),
-                          ]),
-                          SizedBox(height: 20),
-                          Text(S.hrRequests, style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 12),
-                          _buildRequestGrid([
-                            _RequestItem(icon: Icons.flight_takeoff, label: S.businessMission, color: AppTheme.primaryBlue, category: 'HR', type: 'businessMission'),
-                            _RequestItem(icon: Icons.how_to_reg, label: S.permission, color: AppTheme.accentGreen, category: 'HR', type: 'permission'),
-                            _RequestItem(icon: Icons.beach_access, label: S.vacation, color: AppTheme.warningAmber, category: 'HR', type: 'vacation'),
-                            _RequestItem(icon: Icons.exit_to_app, label: S.leave, color: AppTheme.checkOutPink, category: 'HR', type: 'leave'),
-                          ]),
-                          SizedBox(height: 20),
-                          Text('${S.myRequests}', style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
-                          SizedBox(height: 8),
-                          TabBar(
-                            controller: _tabController,
-                            indicatorColor: AppTheme.primaryBlue,
-                            labelColor: AppTheme.primaryBlue,
-                            unselectedLabelColor: context.colors.textSecondary,
-                            isScrollable: true,
-                            tabs: [
-                              Tab(text: '${S.pending} (${_filterByStatus('pending').length})'),
-                              Tab(text: '${S.approved} (${_filterByStatus('approved').length})'),
-                              Tab(text: '${S.rejected} (${_filterByStatus('rejected').length})'),
-                            ],
-                          ),
-                        ],
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(S.itRequests, style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 12),
+                    _buildRequestGrid([
+                      _RequestItem(icon: Icons.alternate_email, label: S.emailUserAccount, color: AppTheme.primaryBlue, category: 'IT', type: 'emailAndUserAccount'),
+                      _RequestItem(icon: Icons.security, label: S.accessRight, color: AppTheme.accentGreen, category: 'IT', type: 'accessRight'),
+                      _RequestItem(icon: Icons.devices, label: S.equipment, color: AppTheme.warningAmber, category: 'IT', type: 'equipment'),
+                      _RequestItem(icon: Icons.apps, label: S.applications, color: AppTheme.checkOutPink, category: 'IT', type: 'applications'),
+                    ]),
+                    const SizedBox(height: 20),
+                    Text(S.hrRequests, style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 12),
+                    _buildRequestGrid([
+                      _RequestItem(icon: Icons.flight_takeoff, label: S.businessMission, color: AppTheme.primaryBlue, category: 'HR', type: 'businessMission'),
+                      _RequestItem(icon: Icons.how_to_reg, label: S.permission, color: AppTheme.accentGreen, category: 'HR', type: 'permission'),
+                      _RequestItem(icon: Icons.beach_access, label: S.vacation, color: AppTheme.warningAmber, category: 'HR', type: 'vacation'),
+                      _RequestItem(icon: Icons.exit_to_app, label: S.leave, color: AppTheme.checkOutPink, category: 'HR', type: 'leave'),
+                    ]),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.list_alt_outlined),
+                        label: Text(S.myRequests),
+                        onPressed: () => Navigator.pushNamed(context, '/my-requests'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(color: context.colors.surfaceBorder),
+                          foregroundColor: AppTheme.primaryBlue,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-                body: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildStatusList('pending'),
-                    _buildStatusList('approved'),
-                    _buildStatusList('rejected'),
                   ],
                 ),
               ),
             ),
           ] else ...[
-            // Manager view - just tabs
+            // Manager view - search + tabs
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+              child: TextField(
+                controller: _searchController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: InputDecoration(
+                  hintText: S.searchRequests,
+                  prefixIcon: Icon(Icons.search, color: context.colors.textSecondary),
+                  filled: true,
+                  fillColor: context.colors.cardBg,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.colors.surfaceBorder)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.colors.surfaceBorder)),
+                ),
+              ),
+            ),
             TabBar(
               controller: _tabController,
               indicatorColor: AppTheme.primaryBlue,
@@ -186,6 +199,14 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
     );
   }
 
+  String _localizedStatus(RequestStatus status) {
+    switch (status) {
+      case RequestStatus.approved: return S.approved.toUpperCase();
+      case RequestStatus.rejected: return S.rejected.toUpperCase();
+      default: return S.pending.toUpperCase();
+    }
+  }
+
   Widget _buildRequestListItem(AppRequest req) {
     final statusColor = switch (req.status) {
       RequestStatus.approved => AppTheme.accentGreen,
@@ -207,16 +228,16 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
                 SizedBox(height: 2),
                 Text('${req.category.name.toUpperCase()} · ${req.typeDisplayName}', style: TextStyle(color: context.colors.textSecondary, fontSize: 12)),
                 SizedBox(height: 2),
-                Text('${S.createdAt}: ${DateFormat('MMM d, y · HH:mm').format(req.createdAt)}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
+                Text('${S.createdAt}: ${DateFormat('MMM d, y · HH:mm', S.locale.languageCode).format(req.createdAt)}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
                 if (req.startDate != null)
-                  Text('From: ${DateFormat('MMM d').format(req.startDate!)}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
+                  Text('${S.from}: ${DateFormat('MMM d', S.locale.languageCode).format(req.startDate!)}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
               ],
             ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-            child: Text(req.status.name.toUpperCase(), style: TextStyle(color: statusColor, fontWeight: FontWeight.w600, fontSize: 11)),
+            child: Text(_localizedStatus(req.status), style: TextStyle(color: statusColor, fontWeight: FontWeight.w600, fontSize: 11)),
           ),
         ],
       ),

@@ -22,6 +22,9 @@ class Task {
   final List<String>? completionAttachments;
   final DateTime? startedAt;
   final DateTime? completedAt;
+  final String taskType; // 'general' | 'warehouse'
+  final String? itemCode; // for warehouse tasks
+  final int? countedTotal; // filled by warehouse employee on completion
 
   Task({
     required this.id,
@@ -40,6 +43,9 @@ class Task {
     this.completionAttachments,
     this.startedAt,
     this.completedAt,
+    this.taskType = 'general',
+    this.itemCode,
+    this.countedTotal,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -67,6 +73,9 @@ class Task {
           .toList(),
       startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
       completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
+      taskType: json['task_type'] as String? ?? 'general',
+      itemCode: json['item_code'] as String?,
+      countedTotal: (json['counted_total'] as num?)?.toInt(),
     );
   }
 
@@ -88,6 +97,9 @@ class Task {
       'completion_attachments': completionAttachments,
       'started_at': startedAt?.toIso8601String(),
       'completed_at': completedAt?.toIso8601String(),
+      'task_type': taskType,
+      'item_code': itemCode,
+      'counted_total': countedTotal,
     };
   }
 

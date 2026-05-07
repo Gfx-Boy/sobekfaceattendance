@@ -1,5 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
 import '../models/task.dart';
@@ -21,6 +25,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   bool _loading = true;
   bool _calendarView = true;
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  int _lastTabIndex = 0;
 
   @override
   void initState() {
@@ -29,6 +34,14 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     final isSA = employee?.role == UserRole.superAdmin;
     final isManager = employee?.role != UserRole.employee;
     _tabController = TabController(length: (isManager && !isSA) ? 2 : 1, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging && mounted &&
+          _tabController.index != _lastTabIndex) {
+        _lastTabIndex = _tabController.index;
+        setState(() {});
+        _loadTasks();
+      }
+    });
     _loadTasks();
   }
 
@@ -60,9 +73,16 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     }
   }
 
-  Future<void> _updateStatus(Task task, String newStatus, {String? comment}) async {
+  Future<void> _updateStatus(Task task, String newStatus,
+      {String? comment, List<String>? attachments, int? countedTotal}) async {
     try {
-      await ApiService().updateTaskStatus(task.id, newStatus, comment: comment);
+      await ApiService().updateTaskStatus(
+        task.id,
+        newStatus,
+        comment: comment,
+        attachments: attachments,
+        countedTotal: countedTotal,
+      );
       _loadTasks();
     } catch (e) {
       if (mounted) {
@@ -75,42 +95,167 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   Future<void> _showCompletionDialog(Task task, String newStatus) async {
     final commentController = TextEditingController();
-    final confirmed = await showDialog<bool>(
+    final countController = TextEditingController();
+    final isWarehouse = task.taskType == 'warehouse';
+    File? attachment;
+    String? attachmentUrl;
+    bool uploading = false;
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: context.colors.cardBg,
-        title: Text(newStatus == 'done' ? S.done : S.failed),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              newStatus == 'done' ? 'Add a completion comment (optional):' : 'Add a reason (optional):',
-              style: TextStyle(color: context.colors.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: commentController,
-              maxLines: 3,
-              style: TextStyle(color: context.colors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Comment...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        Future<void> pick() async {
+          final picker = ImagePicker();
+          final picked =
+              await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+          if (picked == null) return;
+          setS(() {
+            attachment = File(picked.path);
+            attachmentUrl = null;
+            uploading = true;
+          });
+          try {
+            final res = await ApiService().uploadTaskAttachment(File(picked.path));
+            setS(() {
+              attachmentUrl = res['url'] as String?;
+              uploading = false;
+            });
+          } catch (e) {
+            setS(() {
+              attachment = null;
+              uploading = false;
+            });
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                SnackBar(
+                    content: Text('$e'),
+                    backgroundColor: AppTheme.checkOutRed),
+              );
+            }
+          }
+        }
+
+        return AlertDialog(
+          backgroundColor: context.colors.cardBg,
+          title: Text(newStatus == 'done' ? S.done : S.failed),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                newStatus == 'done'
+                    ? S.addCompletionComment
+                    : S.addReasonOptional,
+                style: TextStyle(
+                    color: context.colors.textSecondary, fontSize: 13),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: commentController,
+                maxLines: 3,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: InputDecoration(
+                  hintText: S.comment,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (isWarehouse && newStatus == 'done') ...[
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: countController,
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(color: context.colors.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: S.countedTotal,
+                        hintText: task.itemCode != null
+                            ? '${S.itemCode}: ${task.itemCode}'
+                            : null,
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: S.scanCode,
+                    onPressed: () async {
+                      final scanned = await _scanCode();
+                      if (scanned != null) {
+                        // If the scanned code matches the task's item code, we
+                        // just confirm; otherwise we still pre-fill so the
+                        // employee can correct the value manually.
+                        if (task.itemCode != null &&
+                            scanned != task.itemCode) {
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(
+                                content: Text(S.scannedCodeMismatch),
+                                backgroundColor: AppTheme.warningAmber),
+                          );
+                        }
+                        // On successful scan we do not modify the count input
+                        // — the employee still enters the total they counted.
+                      }
+                    },
+                    icon: const Icon(Icons.qr_code_scanner),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+              ],
+              OutlinedButton.icon(
+                onPressed: uploading ? null : pick,
+                icon: uploading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.attach_file, size: 18),
+                label: Text(attachment == null
+                    ? S.attachFile
+                    : (attachmentUrl != null
+                        ? '✓ ${attachment!.uri.pathSegments.last}'
+                        : attachment!.uri.pathSegments.last)),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, null), child: Text(S.cancel)),
+            ElevatedButton(
+              onPressed: uploading
+                  ? null
+                  : () => Navigator.pop(ctx, {
+                        'comment': commentController.text.trim(),
+                        'attachment': attachmentUrl,
+                        'counted_total':
+                            int.tryParse(countController.text.trim()),
+                      }),
+              child: Text(S.confirm),
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(S.confirm),
-          ),
-        ],
-      ),
+        );
+      }),
     );
-    if (confirmed == true) {
-      _updateStatus(task, newStatus, comment: commentController.text.trim().isEmpty ? null : commentController.text.trim());
+    if (result != null) {
+      final cmt = (result['comment'] as String?) ?? '';
+      final att = result['attachment'] as String?;
+      final count = result['counted_total'] as int?;
+      _updateStatus(
+        task,
+        newStatus,
+        comment: cmt.isEmpty ? null : cmt,
+        attachments: att != null ? [att] : null,
+        countedTotal: count,
+      );
     }
+  }
+
+  /// Opens a camera scanner and returns the first detected barcode/QR value.
+  Future<String?> _scanCode() async {
+    return await Navigator.of(context).push<String?>(
+      MaterialPageRoute(builder: (_) => const _ScannerScreen()),
+    );
   }
 
   @override
@@ -314,9 +459,21 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     showModalBottomSheet(
       context: context,
       backgroundColor: context.colors.cardBg,
+      isScrollControlled: true,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 20,
+          bottom: 20 + MediaQuery.of(ctx).viewInsets.bottom + MediaQuery.of(ctx).viewPadding.bottom,
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+          ),
+          child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,8 +498,15 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                     Text(t.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 12), maxLines: 2),
                   const SizedBox(height: 4),
                   Row(children: [
-                    Text('${S.assignedBy}: ${t.assignedByName ?? t.assignedBy}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
-                    const Spacer(),
+                    Expanded(
+                      child: Text(
+                        '${S.assignedBy}: ${t.assignedByName ?? t.assignedBy}',
+                        style: TextStyle(color: context.colors.textMuted, fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     Text(t.statusDisplayName, style: TextStyle(color: _statusColor(t.status), fontSize: 11, fontWeight: FontWeight.w600)),
                   ]),
                   Text('${S.createdAt}: ${t.createdAt.day}/${t.createdAt.month}/${t.createdAt.year}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
@@ -350,6 +514,8 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
               ),
             )),
           ],
+        ),
+          ),
         ),
       ),
     );
@@ -498,6 +664,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       backgroundColor: context.colors.cardBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (ctx) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.55,
@@ -524,23 +691,123 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                 Text(task.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 14)),
               const SizedBox(height: 12),
               _detailRow(Icons.person_outline, S.assignedBy, task.assignedByName ?? task.assignedBy),
-              _detailRow(Icons.person, 'Assigned To', task.assignedToName ?? task.assignedTo),
+              _detailRow(Icons.person, S.assignedToLabel, task.assignedToName ?? task.assignedTo),
               _detailRow(Icons.calendar_today, S.dueDate, '${task.dueDate.day}/${task.dueDate.month}/${task.dueDate.year}'),
               _detailRow(Icons.access_time, S.createdAt, '${task.createdAt.day}/${task.createdAt.month}/${task.createdAt.year}'),
               if (task.startedAt != null)
-                _detailRow(Icons.play_arrow, 'Started', '${task.startedAt!.day}/${task.startedAt!.month}/${task.startedAt!.year}'),
+                _detailRow(Icons.play_arrow, S.startedLabel, '${task.startedAt!.day}/${task.startedAt!.month}/${task.startedAt!.year}'),
               if (task.completedAt != null)
-                _detailRow(Icons.flag, 'Completed', '${task.completedAt!.day}/${task.completedAt!.month}/${task.completedAt!.year}'),
+                _detailRow(Icons.flag, S.completedLabel, '${task.completedAt!.day}/${task.completedAt!.month}/${task.completedAt!.year}'),
+              if (task.taskType == 'warehouse' && task.itemCode != null) ...[
+                const SizedBox(height: 12),
+                Text(S.itemCode,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 6),
+                Center(
+                  child: GestureDetector(
+                    onTap: () => showDialog(
+                      context: context,
+                      builder: (_) => Dialog(
+                        backgroundColor: Colors.white,
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: QrImageView(
+                              data: task.itemCode!, size: 260),
+                        ),
+                      ),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: QrImageView(data: task.itemCode!, size: 140),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Center(
+                  child: SelectableText(
+                    task.itemCode!,
+                    style: TextStyle(
+                        color: context.colors.textSecondary, fontSize: 12),
+                  ),
+                ),
+              ],
+              if (task.countedTotal != null) ...[
+                const SizedBox(height: 8),
+                _detailRow(Icons.numbers, S.countedTotal,
+                    task.countedTotal!.toString()),
+              ],
               if (task.completionComment != null && task.completionComment!.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text('Completion Comment:', style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(S.completionCommentLabel, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
                 const SizedBox(height: 4),
                 Text(task.completionComment!, style: TextStyle(color: context.colors.textSecondary, fontSize: 13)),
+              ],
+              if (task.attachments != null && task.attachments!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(S.attachments,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 6),
+                _attachmentThumbs(task.attachments!),
+              ],
+              if (task.completionAttachments != null &&
+                  task.completionAttachments!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(S.completionAttachments,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 6),
+                _attachmentThumbs(task.completionAttachments!),
               ],
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _attachmentThumbs(List<String> urls) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: urls.map((u) {
+        return GestureDetector(
+          onTap: () => showDialog(
+            context: context,
+            builder: (_) => Dialog(
+              backgroundColor: Colors.black,
+              child: InteractiveViewer(child: Image.network(u)),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.network(
+              u,
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                width: 80,
+                height: 80,
+                color: context.colors.cardBgLighter,
+                child: Icon(Icons.insert_drive_file,
+                    color: context.colors.textMuted),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -551,7 +818,14 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
         Icon(icon, size: 16, color: context.colors.textMuted),
         SizedBox(width: 8),
         Text('$label: ', style: TextStyle(color: context.colors.textMuted, fontSize: 13)),
-        Expanded(child: Text(value, style: TextStyle(color: context.colors.textPrimary, fontSize: 13))),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(color: context.colors.textPrimary, fontSize: 13),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 2,
+          ),
+        ),
       ]),
     );
   }
@@ -562,6 +836,46 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
         onPressed: onTap,
         style: OutlinedButton.styleFrom(side: BorderSide(color: color), padding: const EdgeInsets.symmetric(vertical: 6)),
         child: Text(label, style: TextStyle(color: color, fontSize: 13)),
+      ),
+    );
+  }
+}
+
+/// Fullscreen camera view that reads a single QR / barcode and returns it.
+class _ScannerScreen extends StatefulWidget {
+  const _ScannerScreen();
+
+  @override
+  State<_ScannerScreen> createState() => _ScannerScreenState();
+}
+
+class _ScannerScreenState extends State<_ScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController();
+  bool _handled = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(S.scanCode)),
+      body: MobileScanner(
+        controller: _controller,
+        onDetect: (capture) {
+          if (_handled) return;
+          for (final b in capture.barcodes) {
+            final v = b.rawValue;
+            if (v != null && v.isNotEmpty) {
+              _handled = true;
+              Navigator.pop(context, v);
+              break;
+            }
+          }
+        },
       ),
     );
   }

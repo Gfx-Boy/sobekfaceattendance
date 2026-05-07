@@ -153,6 +153,21 @@ router.patch('/:id/review', async (req, res) => {
 
     await putJSON(requestKey(req.params.id), request);
 
+    // #32 — Password-change request approval unlocks self-reset.
+    if (status === 'approved' && request.type === 'password_change' && request.employee_id) {
+      try {
+        const emp = await getJSON(`data/employees/employee-${request.employee_id}.json`);
+        if (emp) {
+          emp.password_reset_pending = true;
+          emp.password_reset_request_id = request.id;
+          emp.password_reset_granted_at = new Date().toISOString();
+          await putJSON(`data/employees/employee-${request.employee_id}.json`, emp);
+        }
+      } catch (e) {
+        console.error('Failed to set password_reset_pending:', e.message);
+      }
+    }
+
     // If approved and it's a leave/vacation/permission, reflect in attendance sheet
     if (status === 'approved' && request.employee_id) {
       try {
@@ -160,7 +175,23 @@ router.patch('/:id/review', async (req, res) => {
         if (isAttendanceRelated && request.start_date) {
           const start = new Date(request.start_date);
           const end = request.end_date ? new Date(request.end_date) : start;
-          const dayStatus = request.type === 'vacation' ? 'vacation' : 'vacation';
+          let dayStatus;
+          switch (request.type) {
+            case 'vacation':
+              dayStatus = 'vacation';
+              break;
+            case 'leave':
+              dayStatus = 'vacation';
+              break;
+            case 'permission':
+              dayStatus = 'permission';
+              break;
+            case 'businessMission':
+              dayStatus = 'business_mission';
+              break;
+            default:
+              dayStatus = 'vacation';
+          }
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
             const dateStr = d.toISOString().split('T')[0];
             const recordId = `day-status-${dateStr}`;

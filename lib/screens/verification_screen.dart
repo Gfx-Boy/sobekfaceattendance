@@ -39,26 +39,21 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Consumer<AttendanceProvider>(
-          builder: (context, provider, _) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: MediaQuery.of(context).size.height -
-                      MediaQuery.of(context).padding.top -
-                      MediaQuery.of(context).padding.bottom,
-                ),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: [
-                  const Spacer(),
-                  // Status icon
-                  _buildStatusIcon(provider.currentStep),
-                  const SizedBox(height: 32),
-                  // Status message
+    return Consumer<AttendanceProvider>(
+      builder: (context, provider, _) {
+        final showButtons =
+            provider.currentStep == AttendanceStep.success ||
+                provider.currentStep == AttendanceStep.failed;
+        return Scaffold(
+          body: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 24),
+                  Center(child: _buildStatusIcon(provider.currentStep)),
+                  const SizedBox(height: 24),
                   Text(
                     provider.stepMessage,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -67,28 +62,27 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
-                  // Step indicators
                   _buildStepIndicators(provider),
-                  const SizedBox(height: 32),
-                  // Verification details on success
+                  const SizedBox(height: 24),
                   if (provider.currentStep == AttendanceStep.success)
                     _buildSuccessDetails(provider),
-                  // Error details on failure
                   if (provider.currentStep == AttendanceStep.failed)
                     _buildErrorDetails(provider),
-                  const Spacer(),
-                  // Bottom buttons
-                  if (provider.currentStep == AttendanceStep.success ||
-                      provider.currentStep == AttendanceStep.failed)
-                    _buildBottomButtons(context, provider),
-                    ],
-                  ),
-                ),
+                  const SizedBox(height: 16),
+                ],
               ),
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+          bottomNavigationBar: showButtons
+              ? SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                    child: _buildBottomButtons(context, provider),
+                  ),
+                )
+              : null,
+        );
+      },
     );
   }
 

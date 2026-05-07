@@ -103,7 +103,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
           is_verified: false,
           face_matched: false,
           liveness_detected: false,
-          message: `You are ${Math.round(distance)}m away from your allowed location (max ${Math.round(employee.allowed_radius)}m)`,
+          message: `You are ${Math.round(distance)}m away from your allowed location`,
         });
       }
     }

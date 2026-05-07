@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/branch.dart';
+import '../models/employee.dart';
+import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
 
@@ -15,6 +18,8 @@ class BranchesScreen extends StatefulWidget {
 class _BranchesScreenState extends State<BranchesScreen> {
   List<Branch> _branches = [];
   bool _loading = true;
+  final _searchController = TextEditingController();
+  String _query = '';
 
   @override
   void initState() {
@@ -25,11 +30,24 @@ class _BranchesScreenState extends State<BranchesScreen> {
   Future<void> _loadBranches() async {
     try {
       setState(() => _loading = true);
-      final branches = await ApiService().getBranches();
-      if (mounted) setState(() { _branches = branches; _loading = false; });
+      final all = await ApiService().getBranches();
+      final me = context.read<AuthProvider>().employee;
+      // Branch admin only sees own branch (#14).
+      List<Branch> visible;
+      if (me?.role == UserRole.branchAdmin && me?.branchId != null) {
+        visible = all.where((b) => b.id == me!.branchId).toList();
+      } else {
+        visible = all;
+      }
+      if (mounted) setState(() { _branches = visible; _loading = false; });
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  bool get _isSuperAdmin {
+    final role = context.read<AuthProvider>().employee?.role;
+    return role == UserRole.superAdmin;
   }
 
   void _showBranchDialog({Branch? branch}) {
@@ -160,7 +178,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                           child: InputDecorator(
                             decoration: InputDecoration(labelText: S.validityStart),
                             child: Text(
-                              validityStart != null ? DateFormat('MMM d, y').format(validityStart!) : 'Select date',
+                              validityStart != null ? DateFormat('MMM d, y', S.locale.languageCode).format(validityStart!) : 'Select date',
                               style: TextStyle(color: validityStart != null ? context.colors.textPrimary : context.colors.textMuted, fontSize: 14),
                             ),
                           ),
@@ -173,7 +191,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                           child: InputDecorator(
                             decoration: InputDecoration(labelText: S.validityEnd),
                             child: Text(
-                              validityEnd != null ? DateFormat('MMM d, y').format(validityEnd!) : 'Select date',
+                              validityEnd != null ? DateFormat('MMM d, y', S.locale.languageCode).format(validityEnd!) : 'Select date',
                               style: TextStyle(color: validityEnd != null ? context.colors.textPrimary : context.colors.textMuted, fontSize: 14),
                             ),
                           ),
@@ -295,7 +313,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                   Navigator.pop(ctx);
                   try {
                     if (isEdit) {
-                      await ApiService().updateBranch(branch!.id, {
+                      final updated = await ApiService().updateBranch(branch!.id, {
                         'address': addressController.text.trim(),
                         'status': selectedStatus,
                         'validity_start': validityStart?.toIso8601String(),
@@ -308,8 +326,15 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         'deduction_early_out': double.tryParse(earlyOutDeductionCtl.text) ?? 0,
                         'deduction_absent': double.tryParse(absentDeductionCtl.text) ?? 0,
                       });
+                      // Optimistically update local list — S3 read-after-write can be stale
+                      if (mounted) {
+                        setState(() {
+                          final idx = _branches.indexWhere((b) => b.id == updated.id);
+                          if (idx != -1) _branches[idx] = updated;
+                        });
+                      }
                     } else {
-                      await ApiService().createBranch(
+                      final created = await ApiService().createBranch(
                         name: nameController.text.trim(),
                         address: addressController.text.trim(),
                         status: selectedStatus,
@@ -323,8 +348,20 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         deductionEarlyOut: double.tryParse(earlyOutDeductionCtl.text) ?? 0,
                         deductionAbsent: double.tryParse(absentDeductionCtl.text) ?? 0,
                       );
+                      if (mounted) {
+                        setState(() => _branches.add(created));
+                      }
                     }
-                    _loadBranches();
+                    // Background refresh after a short delay so S3 settles
+                    Future.delayed(const Duration(seconds: 2), _loadBranches);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(isEdit ? S.branchUpdated : S.branchCreated),
+                          backgroundColor: AppTheme.accentGreen,
+                        ),
+                      );
+                    }
                   } catch (e) {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -385,22 +422,52 @@ class _BranchesScreenState extends State<BranchesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(S.branches)),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showBranchDialog(),
-        backgroundColor: AppTheme.primaryBlue,
-        child: Icon(Icons.add, color: Colors.white),
-      ),
+      floatingActionButton: _isSuperAdmin
+          ? FloatingActionButton(
+              onPressed: () => _showBranchDialog(),
+              backgroundColor: AppTheme.primaryBlue,
+              child: Icon(Icons.add, color: Colors.white),
+            )
+          : null,
       body: _loading
           ? Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadBranches,
-              child: _branches.isEmpty
-                  ? Center(child: Text(S.noBranchesYet, style: TextStyle(color: context.colors.textSecondary)))
-                  : ListView.builder(
+          : Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                child: TextField(
+                  controller: _searchController,
+                  style: TextStyle(color: context.colors.textPrimary),
+                  onChanged: (v) => setState(() => _query = v.toLowerCase()),
+                  decoration: InputDecoration(
+                    hintText: S.search,
+                    prefixIcon: Icon(Icons.search, color: context.colors.textMuted),
+                    filled: true,
+                    fillColor: context.colors.cardBg,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: context.colors.surfaceBorder)),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _loadBranches,
+                  child: Builder(builder: (context) {
+                    final list = _query.isEmpty
+                        ? _branches
+                        : _branches
+                            .where((b) =>
+                                b.name.toLowerCase().contains(_query) ||
+                                b.address.toLowerCase().contains(_query))
+                            .toList();
+                    if (list.isEmpty) {
+                      return Center(child: Text(S.noBranchesYet, style: TextStyle(color: context.colors.textSecondary)));
+                    }
+                    return ListView.builder(
                       padding: const EdgeInsets.all(12),
-                      itemCount: _branches.length,
+                      itemCount: list.length,
                       itemBuilder: (context, index) {
-                        final branch = _branches[index];
+                        final branch = list[index];
                         final sColor = _statusColor(branch.status);
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
@@ -445,7 +512,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                                         if (branch.validityEnd != null) ...[
                                           SizedBox(width: 8),
                                           Text(
-                                            'Until ${DateFormat('MMM d, y').format(branch.validityEnd!)}',
+                                            S.untilDate(DateFormat('MMM d, y', S.locale.languageCode).format(branch.validityEnd!)),
                                             style: TextStyle(color: context.colors.textMuted, fontSize: 10),
                                           ),
                                         ],
@@ -459,17 +526,27 @@ class _BranchesScreenState extends State<BranchesScreen> {
                                 onPressed: () => _showBranchDialog(branch: branch),
                                 tooltip: S.edit,
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: AppTheme.checkOutRed, size: 20),
-                                onPressed: () => _confirmDelete(branch),
-                                tooltip: S.delete,
-                              ),
+                              if (_isSuperAdmin)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: AppTheme.checkOutRed, size: 20),
+                                  onPressed: () => _confirmDelete(branch),
+                                  tooltip: S.delete,
+                                ),
                             ],
                           ),
                         );
                       },
-                    ),
-            ),
+                    );
+                  }),
+                ),
+              ),
+            ]),
     );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 }

@@ -18,8 +18,73 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final _formKey = GlobalKey<FormState>();
   bool _uploading = false;
+  bool _editMode = false;
   String? _localImageUrl; // cache-busted URL after upload
+  late TextEditingController _nameController;
+  late TextEditingController _phoneController;
+  late TextEditingController _addressController;
+  late TextEditingController _positionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _phoneController = TextEditingController();
+    _addressController = TextEditingController();
+    _positionController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _positionController.dispose();
+    super.dispose();
+  }
+
+  void _initEditControllers() {
+    final employee = context.read<AuthProvider>().employee;
+    if (employee == null) return;
+    _nameController.text = employee.name;
+    _phoneController.text = employee.phone ?? '';
+    _addressController.text = employee.address ?? '';
+    _positionController.text = employee.position ?? '';
+  }
+
+  Future<void> _saveProfile() async {
+    if (_editMode && !(_formKey.currentState?.validate() ?? true)) return;
+    final employee = context.read<AuthProvider>().employee;
+    if (employee == null) return;
+
+    setState(() => _uploading = true);
+    try {
+      final updates = <String, dynamic>{
+        'name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
+        'position': _positionController.text.trim(),
+      };
+      final updated = await ApiService().updateEmployee(employee.id, updates);
+      if (!mounted) return;
+      context.read<AuthProvider>().updateEmployee(updated);
+      setState(() => _editMode = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.profileUpdated), backgroundColor: AppTheme.accentGreen),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${S.failedToUpdateProfile}: $e'), backgroundColor: AppTheme.checkOutRed),
+        );
+      }
+    }
+    if (mounted) setState(() => _uploading = false);
+  }
 
   Future<void> _pickAndUploadImage({ImageSource? source}) async {
     final auth = context.read<AuthProvider>();
@@ -98,40 +163,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         title: Text(S.profile),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: AppTheme.checkOutRed),
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: Text(S.confirmLogout),
-                  content: Text(S.confirmLogoutMsg),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: Text(S.cancel),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      style: TextButton.styleFrom(foregroundColor: AppTheme.checkOutRed),
-                      child: Text(S.logout),
-                    ),
-                  ],
-                ),
-              );
-              if (confirmed == true) {
-                await auth.logout();
-                if (context.mounted) {
-                  Navigator.pushReplacementNamed(context, '/login');
+          if (_editMode)
+            IconButton(
+              icon: _uploading
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.check, color: AppTheme.accentGreen),
+              onPressed: _uploading ? null : _saveProfile,
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: S.editProfile,
+              onPressed: () {
+                _initEditControllers();
+                setState(() => _editMode = true);
+              },
+            ),
+          if (_editMode)
+            IconButton(
+              icon: const Icon(Icons.close, color: AppTheme.checkOutRed),
+              onPressed: () => setState(() => _editMode = false),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.logout, color: AppTheme.checkOutRed),
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(S.confirmLogout),
+                    content: Text(S.confirmLogoutMsg),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text(S.cancel),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: TextButton.styleFrom(foregroundColor: AppTheme.checkOutRed),
+                        child: Text(S.logout),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) {
+                  await auth.logout();
+                  if (context.mounted) {
+                    Navigator.pushReplacementNamed(context, '/login');
+                  }
                 }
-              }
-            },
-          ),
+              },
+            ),
         ],
       ),
-      body: SingleChildScrollView(
+      body: Stack(children: [
+        SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        child: Column(
+        child: Form(
+          key: _formKey,
+          child: Column(
           children: [
             const SizedBox(height: 8),
             // Avatar with upload button
@@ -240,18 +330,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            // Info cards
-            _infoTile(Icons.email_outlined, S.email, employee?.email ?? '-'),
-            _infoTile(Icons.business_outlined, S.department,
-                employee?.department ?? '-'),
-            _infoTile(Icons.location_city_outlined, S.branch,
-                employee?.branchName ?? '-'),
-            _infoTile(
-                Icons.badge_outlined, S.position, employee?.position ?? '-'),
-            _infoTile(
-                Icons.phone_outlined, S.phone, employee?.phone ?? '-'),
-            _infoTile(Icons.location_on_outlined, S.address,
-                employee?.address ?? '-'),
+            // Info cards / Edit form
+            if (_editMode) ...[
+              TextFormField(
+                controller: _nameController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: _inputDecoration(S.name, Icons.person_outlined),
+                validator: (v) => (v ?? '').trim().isEmpty ? S.required : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _positionController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: _inputDecoration(S.position, Icons.badge_outlined),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: _inputDecoration(S.phone, Icons.phone_outlined),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _addressController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: _inputDecoration(S.address, Icons.location_on_outlined),
+              ),
+              const SizedBox(height: 12),
+            ] else ...[
+              _infoTile(Icons.email_outlined, S.email, employee?.email ?? '-'),
+              _infoTile(Icons.business_outlined, S.department,
+                  employee?.department ?? '-'),
+              _infoTile(Icons.location_city_outlined, S.branch,
+                  employee?.branchName ?? '-'),
+              _infoTile(
+                  Icons.badge_outlined, S.position, employee?.position ?? '-'),
+              _infoTile(
+                  Icons.phone_outlined, S.phone, employee?.phone ?? '-'),
+              _infoTile(Icons.location_on_outlined, S.address,
+                  employee?.address ?? '-'),
+            ],
             const SizedBox(height: 24),
             // Language toggle
             _buildLanguageToggle(),
@@ -259,25 +378,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
             // Theme toggle
             _buildThemeToggle(),
             const SizedBox(height: 24),
-            // Quick actions
-            _actionTile(
-              Icons.history,
-              role == UserRole.superAdmin || role == UserRole.branchAdmin
-                  ? S.attendanceReports
-                  : S.attendanceHistory,
-              () {
-                final role = context.read<AuthProvider>().employee?.role;
-                if (role == UserRole.superAdmin || role == UserRole.branchAdmin) {
-                  Navigator.pushNamed(context, '/reports');
-                } else {
-                  Navigator.pushNamed(context, '/history');
-                }
-              },
-            ),
+            // Quick actions — only admins get the Reports link; default
+            // employees use the Attendance tab directly (#24).
+            if (role == UserRole.superAdmin || role == UserRole.branchAdmin)
+              _actionTile(
+                Icons.history,
+                S.attendanceReports,
+                () => Navigator.pushNamed(context, '/reports'),
+              ),
+            // Password change: request when no pending approval,
+            // otherwise allow the employee to set their new password.
+            if (employee != null) ...[
+              if (employee.passwordResetPending)
+                _actionTile(
+                  Icons.lock_reset,
+                  S.changePasswordNow,
+                  _showChangePasswordDialog,
+                )
+              else
+                _actionTile(
+                  Icons.password,
+                  S.requestPasswordChange,
+                  _submitPasswordChangeRequest,
+                ),
+            ],
           ],
         ),
       ),
       ),
+      if (_uploading)
+        const Positioned.fill(
+          child: AbsorbPointer(
+            absorbing: true,
+            child: ColoredBox(
+              color: Color(0x66000000),
+              child: Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      ]),
+      ),
+    );
+  }
+
+  InputDecoration _inputDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: context.colors.textSecondary),
+      filled: true,
+      fillColor: context.colors.cardBg,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: context.colors.surfaceBorder),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: context.colors.surfaceBorder),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: AppTheme.primaryBlue),
+      ),
+      labelStyle: TextStyle(color: context.colors.textSecondary),
     );
   }
 
@@ -394,6 +558,156 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _submitPasswordChangeRequest() async {
+    final auth = context.read<AuthProvider>();
+    final emp = auth.employee;
+    if (emp == null) return;
+    final reasonController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(S.requestPasswordChange),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(S.passwordChangeRequestHelp,
+                style: TextStyle(
+                    color: context.colors.textSecondary, fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              style: TextStyle(color: context.colors.textPrimary),
+              decoration: InputDecoration(
+                hintText: S.reasonOptional,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(S.cancel)),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(S.submit)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiService().createRequest(
+        employeeId: emp.id,
+        employeeName: emp.name,
+        employeeEmail: emp.email,
+        branchName: emp.branchName,
+        category: 'hr',
+        type: 'passwordChange',
+        title: S.requestPasswordChange,
+        description: reasonController.text.trim().isEmpty
+            ? S.requestPasswordChange
+            : reasonController.text.trim(),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(S.requestSubmitted),
+            backgroundColor: AppTheme.accentGreen),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: AppTheme.checkOutRed),
+      );
+    }
+  }
+
+  Future<void> _showChangePasswordDialog() async {
+    final auth = context.read<AuthProvider>();
+    final emp = auth.employee;
+    if (emp == null) return;
+    final pwd = TextEditingController();
+    final pwd2 = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(S.changePasswordNow),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pwd,
+              obscureText: true,
+              style: TextStyle(color: context.colors.textPrimary),
+              decoration: InputDecoration(
+                hintText: S.newPasswordHint,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: pwd2,
+              obscureText: true,
+              style: TextStyle(color: context.colors.textPrimary),
+              decoration: InputDecoration(
+                hintText: S.confirmNewPassword,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(S.cancel)),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(S.save)),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    if (pwd.text.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(S.passwordTooShort),
+            backgroundColor: AppTheme.warningAmber),
+      );
+      return;
+    }
+    if (pwd.text != pwd2.text) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(S.passwordsDontMatch),
+            backgroundColor: AppTheme.warningAmber),
+      );
+      return;
+    }
+    try {
+      await ApiService()
+          .selfChangePassword(employeeId: emp.id, newPassword: pwd.text);
+      // Refresh profile so the flag is cleared.
+      await auth.refreshProfile();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(S.passwordUpdated),
+            backgroundColor: AppTheme.accentGreen),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: AppTheme.checkOutRed),
+      );
+    }
   }
 
   Widget _actionTile(IconData icon, String label, VoidCallback onTap) {

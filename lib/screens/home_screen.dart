@@ -180,6 +180,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         onTap: () =>
                             Navigator.pushNamed(context, '/branches'),
                       )
+                    else if (role == UserRole.branchAdmin)
+                      _QuickAction(
+                        icon: Icons.settings_outlined,
+                        label: S.branchSettings,
+                        color: AppTheme.checkOutPink,
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/branches'),
+                      )
                     else
                       _QuickAction(
                         icon: Icons.person_add_outlined,
@@ -353,12 +361,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: const Color(0xFF4ECDC4),
                       onTap: () => Navigator.pushNamed(context, '/manage-payslips'),
                     ),
-                    _QuickAction(
-                      icon: Icons.history,
-                      label: S.history,
-                      color: const Color(0xFF7E8C8D),
-                      onTap: () => Navigator.pushNamed(context, '/history'),
-                    ),
                   ],
                 ),
                 SizedBox(height: 24),
@@ -451,13 +453,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.warningAmber,
                       onTap: () =>
                           Navigator.pushNamed(context, '/create-request'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.history,
-                      label: S.history,
-                      color: AppTheme.primaryBlue,
-                      onTap: () =>
-                          Navigator.pushNamed(context, '/history'),
                     ),
                   ],
                 ),

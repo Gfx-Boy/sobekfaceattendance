@@ -1,3 +1,5 @@
+import '../l10n/app_localizations.dart';
+
 enum UserRole {
   superAdmin,
   branchAdmin,
@@ -31,6 +33,8 @@ class Employee {
   final double? allowedLongitude;
   final double? allowedRadius;
   final bool isOnHold;
+  final double? basicSalary;
+  final bool passwordResetPending;
 
   Employee({
     required this.id,
@@ -51,6 +55,8 @@ class Employee {
     this.allowedLongitude,
     this.allowedRadius,
     this.isOnHold = false,
+    this.basicSalary,
+    this.passwordResetPending = false,
   });
 
   factory Employee.fromJson(Map<String, dynamic> json) {
@@ -81,6 +87,8 @@ class Employee {
       allowedLongitude: (json['allowed_longitude'] as num?)?.toDouble(),
       allowedRadius: (json['allowed_radius'] as num?)?.toDouble(),
       isOnHold: json['is_on_hold'] == true,
+      basicSalary: (json['basic_salary'] as num?)?.toDouble(),
+      passwordResetPending: json['password_reset_pending'] == true,
     );
   }
 
@@ -104,22 +112,20 @@ class Employee {
       'allowed_longitude': allowedLongitude,
       'allowed_radius': allowedRadius,
       'is_on_hold': isOnHold,
+      'basic_salary': basicSalary,
     };
   }
 
   String get roleDisplayName {
     switch (role) {
       case UserRole.superAdmin:
-        return 'Super Admin';
+        return S.superAdminTitle;
       case UserRole.branchAdmin:
-        return 'Branch Admin';
+        return S.branchAdminTitle;
       case UserRole.hr:
-        return 'HR Manager';
+        return S.hrTitle;
       case UserRole.employee:
-        return employeeType == EmployeeType.general
-            ? 'Employee'
-            : employeeType.name[0].toUpperCase() +
-                employeeType.name.substring(1);
+        return S.employeeTitle;
     }
   }
 }

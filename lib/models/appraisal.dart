@@ -9,6 +9,7 @@ class Appraisal {
   final String comments;
   final double overallScore;
   final String status;
+  final String? branchId;
   final DateTime createdAt;
 
   Appraisal({
@@ -22,6 +23,7 @@ class Appraisal {
     this.comments = '',
     this.overallScore = 0,
     this.status = 'submitted',
+    this.branchId,
     required this.createdAt,
   });
 
@@ -37,6 +39,7 @@ class Appraisal {
       comments: json['comments'] as String? ?? '',
       overallScore: (json['overall_score'] as num?)?.toDouble() ?? 0,
       status: json['status'] as String? ?? 'submitted',
+      branchId: json['branch_id'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -52,6 +55,7 @@ class Appraisal {
         'comments': comments,
         'overall_score': overallScore,
         'status': status,
+        'branch_id': branchId,
         'created_at': createdAt.toIso8601String(),
       };
 }

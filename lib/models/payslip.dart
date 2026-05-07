@@ -10,6 +10,7 @@ class Payslip {
   final double netSalary;
   final String? paymentDate;
   final String notes;
+  final String? branchId;
   final DateTime createdAt;
 
   Payslip({
@@ -24,6 +25,7 @@ class Payslip {
     required this.netSalary,
     this.paymentDate,
     this.notes = '',
+    this.branchId,
     required this.createdAt,
   });
 
@@ -40,6 +42,7 @@ class Payslip {
       netSalary: (json['net_salary'] as num?)?.toDouble() ?? 0,
       paymentDate: json['payment_date'] as String?,
       notes: json['notes'] as String? ?? '',
+      branchId: json['branch_id'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
     );
   }
@@ -56,6 +59,7 @@ class Payslip {
         'net_salary': netSalary,
         'payment_date': paymentDate,
         'notes': notes,
+        'branch_id': branchId,
         'created_at': createdAt.toIso8601String(),
       };
 }

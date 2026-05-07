@@ -57,9 +57,17 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
           ? me?.branchId
           : null;
       List<Employee> employees = await ApiService().getAllEmployees(branchId: branchId);
-      // HR cannot evaluate themselves
-      if (me != null && me.role == UserRole.hr) {
-        employees = employees.where((e) => e.id != me.id).toList();
+      // Role restrictions:
+      //  - HR cannot evaluate themselves or the branch admin
+      //  - Branch admin cannot evaluate themselves
+      //  - Nobody can evaluate the super admin
+      if (me != null) {
+        employees = employees.where((e) {
+          if (e.id == me.id) return false;
+          if (e.role == UserRole.superAdmin) return false;
+          if (me.role == UserRole.hr && e.role == UserRole.branchAdmin) return false;
+          return true;
+        }).toList();
       }
       if (mounted) setState(() { _employees = employees; _loadingEmployees = false; });
     } catch (e) {
@@ -92,7 +100,7 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Evaluation submitted'), backgroundColor: AppTheme.accentGreen),
+          SnackBar(content: Text(S.evaluationSubmitted), backgroundColor: AppTheme.accentGreen),
         );
         Navigator.pop(context, true);
       }

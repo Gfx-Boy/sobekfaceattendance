@@ -13,6 +13,7 @@ import '../models/notification_model.dart';
 import '../models/task.dart';
 import '../models/branch.dart';
 import '../models/appraisal.dart';
+import '../models/appraisal_cycle.dart';
 import '../models/payslip.dart';
 import '../models/dashboard_stats.dart';
 import '../models/system_settings.dart';
@@ -22,23 +23,36 @@ class ApiService {
   final http.Client _client;
   String? _accessToken;
 
+  /// Shared across all instances so that screens calling ApiService() directly
+  /// still send the Authorization header after AuthProvider has logged in.
+  static String? _sharedToken;
+
+  /// Invoked when the backend reports the active session has been
+  /// invalidated (e.g. the account logged in on another device).
+  /// Consumers (like [AuthProvider]) should register a handler that
+  /// signs the user out and routes back to the login screen.
+  static void Function()? onSessionInvalidated;
+  static const _sessionInvalidatedMarker = 'another device';
+
   ApiService({String? baseUrl, http.Client? client})
       : baseUrl = baseUrl ?? AppConfig.apiBaseUrl,
-        _client = client ?? http.Client();
+        _client = _SessionAwareClient(client ?? http.Client());
 
   Map<String, String> get _headers {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-    if (_accessToken != null && _accessToken!.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $_accessToken';
+    final token = _accessToken ?? _sharedToken;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
 
   void setAccessToken(String? token) {
     _accessToken = token;
+    _sharedToken = token;
   }
 
   /// Wraps any network call and converts low-level exceptions into friendly
@@ -46,7 +60,10 @@ class ApiService {
   Future<T> _call<T>(Future<T> Function() fn) async {
     try {
       return await fn();
-    } on ApiException {
+    } on ApiException catch (e) {
+      if (e.message.contains(_sessionInvalidatedMarker)) {
+        onSessionInvalidated?.call();
+      }
       rethrow;
     } on TimeoutException {
       throw ApiException(
@@ -419,6 +436,11 @@ class ApiService {
     required String assignedTo,
     required String assignedBy,
     required String dueDate,
+    String? assignedToName,
+    String? assignedByName,
+    List<String>? attachments,
+    String? taskType,
+    String? itemCode,
   }) =>
       _call(() async {
         final response = await _client
@@ -430,6 +452,11 @@ class ApiService {
                   'assigned_to': assignedTo,
                   'assigned_by': assignedBy,
                   'due_date': dueDate,
+                  if (assignedToName != null) 'assigned_to_name': assignedToName,
+                  if (assignedByName != null) 'assigned_by_name': assignedByName,
+                  if (attachments != null) 'attachments': attachments,
+                  if (taskType != null) 'task_type': taskType,
+                  if (itemCode != null) 'item_code': itemCode,
                 }))
             .timeout(AppConfig.apiTimeout);
         if (response.statusCode == 200 || response.statusCode == 201) {
@@ -438,9 +465,15 @@ class ApiService {
         throw ApiException('Failed to create task (${response.statusCode})');
       });
 
-  Future<Task> updateTaskStatus(String taskId, String status, {String? comment}) => _call(() async {
+  Future<Task> updateTaskStatus(String taskId, String status,
+          {String? comment, List<String>? attachments, int? countedTotal}) =>
+      _call(() async {
         final body = <String, dynamic>{'status': status};
         if (comment != null && comment.isNotEmpty) body['comment'] = comment;
+        if (attachments != null && attachments.isNotEmpty) {
+          body['attachments'] = attachments;
+        }
+        if (countedTotal != null) body['counted_total'] = countedTotal;
         final response = await _client
             .patch(Uri.parse('$baseUrl/tasks/$taskId'),
                 headers: _headers,
@@ -450,6 +483,43 @@ class ApiService {
           return Task.fromJson(json.decode(response.body) as Map<String, dynamic>);
         }
         throw ApiException('Failed to update task (${response.statusCode})');
+      });
+
+  /// Self password reset for an employee whose password_reset_pending flag is
+  /// set (i.e. their password-change request has been approved).
+  Future<void> selfChangePassword({
+    required String employeeId,
+    required String newPassword,
+  }) =>
+      _call(() async {
+        final response = await _client
+            .post(
+              Uri.parse('$baseUrl/employees/$employeeId/self-password'),
+              headers: _headers,
+              body: json.encode({'new_password': newPassword}),
+            )
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) return;
+        final msg = _tryExtractError(response.body) ??
+            'Failed to update password (${response.statusCode})';
+        throw ApiException(msg);
+      });
+
+  /// Uploads a file as a task attachment. Returns the descriptor map
+  /// with `url`, `name`, `size`, etc. as returned by the server.
+  Future<Map<String, dynamic>> uploadTaskAttachment(File file) => _call(() async {
+        final uri = Uri.parse('$baseUrl/tasks/upload');
+        final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
+          ..files.add(await http.MultipartFile.fromPath('file', file.path));
+        final streamed =
+            await _client.send(request).timeout(AppConfig.uploadTimeout);
+        final response = await http.Response.fromStream(streamed);
+        if (response.statusCode == 200) {
+          return json.decode(response.body) as Map<String, dynamic>;
+        }
+        throw ApiException(
+            'Failed to upload attachment (${response.statusCode})');
       });
 
   // ---------- Branches ----------
@@ -527,6 +597,34 @@ class ApiService {
         throw ApiException('Failed to update branch (${response.statusCode})');
       });
 
+  /// Apply a day status to every active employee in a branch for the given date.
+  /// Used by Branch Admin to mark a holiday/vacation across the whole branch.
+  Future<int> setBranchDayStatus({
+    required String branchId,
+    required String date,
+    required String status,
+    String? appliedBy,
+  }) =>
+      _call(() async {
+        final response = await _client
+            .post(
+              Uri.parse('$baseUrl/branches/$branchId/day-status'),
+              headers: _headers,
+              body: json.encode({
+                'date': date,
+                'status': status,
+                'applied_by': appliedBy,
+              }),
+            )
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          final body = json.decode(response.body) as Map<String, dynamic>;
+          return (body['employees_updated'] as num?)?.toInt() ?? 0;
+        }
+        throw ApiException(
+            'Failed to apply branch day status (${response.statusCode})');
+      });
+
   Future<void> deleteBranch(String id) => _call(() async {
         final response = await _client
             .delete(Uri.parse('$baseUrl/branches/$id'), headers: _headers)
@@ -601,7 +699,7 @@ class ApiService {
         throw ApiException('Failed to create employee (${response.statusCode}): ${response.body}');
       });
 
-  Future<void> updateEmployee(String id, Map<String, dynamic> updates) => _call(() async {
+  Future<Employee> updateEmployee(String id, Map<String, dynamic> updates) => _call(() async {
         final response = await _client
             .put(Uri.parse('$baseUrl/employees/$id'),
                 headers: _headers, body: json.encode(updates))
@@ -609,6 +707,17 @@ class ApiService {
         if (response.statusCode != 200) {
           throw ApiException('Failed to update employee (${response.statusCode})');
         }
+        try {
+          final body = json.decode(response.body);
+          if (body is Map<String, dynamic>) {
+            final empJson = body['employee'] is Map<String, dynamic>
+                ? body['employee'] as Map<String, dynamic>
+                : body;
+            return Employee.fromJson(empJson);
+          }
+        } catch (_) {}
+        // Fallback: re-fetch
+        return await getEmployee(id);
       });
 
   Future<String> uploadProfileImage(String employeeId, File imageFile) => _call(() async {
@@ -718,6 +827,82 @@ class ApiService {
         throw ApiException('Failed to load all appraisals (${response.statusCode})');
       });
 
+  /// Lists appraisal cycles, optionally filtered by branch.
+  Future<List<AppraisalCycle>> getAppraisalCycles({String? branchId}) =>
+      _call(() async {
+        final uri = branchId != null
+            ? Uri.parse('$baseUrl/appraisals/cycles?branch_id=$branchId')
+            : Uri.parse('$baseUrl/appraisals/cycles');
+        final response =
+            await _client.get(uri, headers: _headers).timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+          return data
+              .map((e) => AppraisalCycle.fromJson(e as Map<String, dynamic>))
+              .toList();
+        }
+        throw ApiException('Failed to load cycles (${response.statusCode})');
+      });
+
+  /// Starts a new appraisal cycle for [branchId].
+  Future<AppraisalCycle> startAppraisalCycle({
+    required String branchId,
+    required String branchName,
+    required DateTime startDate,
+    required DateTime endDate,
+    required double adminWeight,
+    required double hrWeight,
+    String? createdBy,
+    String? createdByName,
+  }) =>
+      _call(() async {
+        final response = await _client
+            .post(Uri.parse('$baseUrl/appraisals/cycles'),
+                headers: _headers,
+                body: json.encode({
+                  'branch_id': branchId,
+                  'branch_name': branchName,
+                  'start_date': startDate.toIso8601String(),
+                  'end_date': endDate.toIso8601String(),
+                  'admin_weight': adminWeight,
+                  'hr_weight': hrWeight,
+                  'created_by': createdBy,
+                  'created_by_name': createdByName,
+                }))
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          return AppraisalCycle.fromJson(
+              json.decode(response.body) as Map<String, dynamic>);
+        }
+        final msg = _tryExtractError(response.body) ??
+            'Failed to start cycle (${response.statusCode})';
+        throw ApiException(msg);
+      });
+
+  /// Closes an active appraisal cycle.
+  Future<AppraisalCycle> closeAppraisalCycle(String cycleId,
+          {String? reason}) =>
+      _call(() async {
+        final response = await _client
+            .patch(Uri.parse('$baseUrl/appraisals/cycles/$cycleId/close'),
+                headers: _headers,
+                body: json.encode({'reason': reason ?? 'manual'}))
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          return AppraisalCycle.fromJson(
+              json.decode(response.body) as Map<String, dynamic>);
+        }
+        throw ApiException('Failed to close cycle (${response.statusCode})');
+      });
+
+  String? _tryExtractError(String body) {
+    try {
+      final m = json.decode(body);
+      if (m is Map && m['error'] is String) return m['error'] as String;
+    } catch (_) {}
+    return null;
+  }
+
   // ---------- Payslips ----------
 
   Future<List<Payslip>> getPayslips(String employeeId) => _call(() async {
@@ -776,6 +961,31 @@ class ApiService {
           return Payslip.fromJson(json.decode(response.body) as Map<String, dynamic>);
         }
         throw ApiException('Failed to create payslip (${response.statusCode})');
+      });
+
+  /// Auto-compute a payslip for [employeeId] in [period] (YYYY-MM).
+  /// When [save] is false, returns a preview Map (not persisted).
+  /// When true, persists and returns the saved Payslip JSON.
+  Future<Map<String, dynamic>> generatePayslip({
+    required String employeeId,
+    required String period,
+    bool save = false,
+  }) =>
+      _call(() async {
+        final response = await _client
+            .post(Uri.parse('$baseUrl/payslips/generate'),
+                headers: _headers,
+                body: json.encode({
+                  'employee_id': employeeId,
+                  'period': period,
+                  'save': save,
+                }))
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          return json.decode(response.body) as Map<String, dynamic>;
+        }
+        throw ApiException(
+            'Failed to generate payslip (${response.statusCode})');
       });
 
   // ---------- Dashboard ----------
@@ -860,6 +1070,43 @@ class ApiService {
   void dispose() {
     _client.close();
   }
+}
+
+/// HTTP client wrapper that inspects every response and, when a 401 status
+/// is returned with the "logged in on another device" marker, invokes
+/// [ApiService.onSessionInvalidated] so the app can sign the user out.
+class _SessionAwareClient extends http.BaseClient {
+  _SessionAwareClient(this._inner);
+  final http.Client _inner;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = await _inner.send(request);
+    if (response.statusCode == 401) {
+      // Peek at the response body without consuming the stream for callers.
+      final bodyBytes = await response.stream.toBytes();
+      try {
+        final decoded = utf8.decode(bodyBytes);
+        if (decoded.contains(ApiService._sessionInvalidatedMarker)) {
+          ApiService.onSessionInvalidated?.call();
+        }
+      } catch (_) {/* non-utf8 body, ignore */}
+      return http.StreamedResponse(
+        Stream.value(bodyBytes),
+        response.statusCode,
+        contentLength: bodyBytes.length,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    }
+    return response;
+  }
+
+  @override
+  void close() => _inner.close();
 }
 
 class ApiException implements Exception {
