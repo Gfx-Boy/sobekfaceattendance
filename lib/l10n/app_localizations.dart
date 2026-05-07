@@ -47,6 +47,11 @@ class S {
   static String get loginErrorNoInternet => _t('No internet connection. Please try again.', 'لا يوجد اتصال بالإنترنت. يرجى المحاولة مرة أخرى.');
   static String get loginErrorInvalidCreds => _t('Invalid credentials. Please try again or contact your administrator.', 'بيانات الاعتماد غير صالحة. يرجى المحاولة مرة أخرى أو الاتصال بالمسؤول.');
   static String get loginErrorContactAdmin => _t('Check with your administrator or request an account.', 'تواصل مع المسؤول أو اطلب إنشاء حساب.');
+  static String get loginErrorAccountOnHold => _t('Your account is on hold. Please contact your administrator.', 'حسابك معلق. يرجى التواصل مع المسؤول.');
+  static String get loginErrorBranchOnHold => _t('Your branch is currently on hold. Please contact your administrator.', 'الفرع الخاص بك معلق حالياً. يرجى التواصل مع المسؤول.');
+  static String get loginErrorBranchClosed => _t('Your branch is closed. Please contact your administrator.', 'الفرع الخاص بك مغلق. يرجى التواصل مع المسؤول.');
+  static String get loginErrorBranchDeleted => _t('Your branch has been deleted. Please contact your administrator.', 'تم حذف الفرع الخاص بك. يرجى التواصل مع المسؤول.');
+  static String get loginErrorAnotherDevice => _t('This account is already logged in on another device.', 'هذا الحساب مسجل الدخول بالفعل على جهاز آخر.');
 
   // ── Home ──
   static String get welcomeBack => _t('Welcome back,', 'مرحباً بعودتك،');
@@ -56,6 +61,7 @@ class S {
   static String get attendanceReports => _t('Attendance Reports', 'تقارير الحضور');
   static String get manageRequests => _t('Manage Requests', 'إدارة الطلبات');
   static String get manageBranches => _t('Manage Branches', 'إدارة الفروع');
+  static String get branchSettings => _t('Branch Settings', 'إعدادات الفرع');
   static String get addEmployee => _t('Add Employee', 'إضافة موظف');
   static String get tasks => _t('Tasks', 'المهام');
   static String get appraisals => _t('Appraisals', 'التقييمات');
@@ -82,6 +88,9 @@ class S {
   static String get confirmLogoutMsg => _t('Are you sure you want to log out?', 'هل أنت متأكد أنك تريد تسجيل الخروج؟');
   static String get logout => _t('Logout', 'تسجيل الخروج');
   static String get profileImageUpdated => _t('Profile image updated', 'تم تحديث صورة الملف الشخصي');
+  static String get editProfile => _t('Edit Profile', 'تعديل الملف الشخصي');
+  static String get profileUpdated => _t('Profile updated', 'تم تحديث الملف الشخصي');
+  static String get failedToUpdateProfile => _t('Failed to update profile', 'فشل تحديث الملف الشخصي');
   static String get attendanceHistory => _t('Attendance History', 'سجل الحضور');
 
   // ── Attendance ──
@@ -149,6 +158,7 @@ class S {
   static String get fourHours => _t('4 Hours', '4 ساعات');
   static String get permissionTime => _t('Permission Time', 'وقت الإذن');
   static String get fromDate => _t('From Date *', 'من تاريخ *');
+  static String get from => _t('From', 'من');
   static String get toDate => _t('To Date *', 'إلى تاريخ *');
   static String get requiredAction => _t('Required Action *', 'الإجراء المطلوب *');
   static String get leaveReason => _t('Leave Reason *', 'سبب الإجازة *');
@@ -204,6 +214,8 @@ class S {
   static String get longitude => _t('Longitude', 'خط الطول');
   static String get radiusMeters => _t('Radius (meters)', 'النطاق (بالأمتار)');
   static String get searchEmployees => _t('Search employees...', 'ابحث عن موظفين...');
+  static String get searchRequests => _t('Search requests...', 'ابحث عن طلبات...');
+  static String get noRequests => _t('No requests', 'لا توجد طلبات');
   static String get noEmployeesFound => _t('No employees found', 'لم يتم العثور على موظفين');
   static String get deleteEmployee => _t('Delete Employee', 'حذف الموظف');
   static String get employeeDeleted => _t('Employee deleted', 'تم حذف الموظف');
@@ -266,8 +278,19 @@ class S {
   static String get notes => _t('Notes', 'ملاحظات');
   static String get payslipCreated => _t('Payslip created', 'تم إنشاء كشف الراتب');
   static String get downloadPdf => _t('Download PDF', 'تحميل PDF');
+  static String get payslip => _t('Payslip', 'كشف الراتب');
+  static String get paymentDate => _t('Payment Date', 'تاريخ الدفع');
+  static String get close => _t('Close', 'إغلاق');
   static String get noPayslips => _t('No payslips', 'لا توجد كشوف رواتب');
   static String get salaryBreakdown => _t('Salary Breakdown', 'تفاصيل الراتب');
+  static String get breakdown => _t('Breakdown', 'تفاصيل');
+  static String get calculate => _t('Calculate', 'احسب');
+  static String get savedSuccessfully => _t('Saved successfully', 'تم الحفظ بنجاح');
+  static String get presentDays => _t('Present Days', 'أيام الحضور');
+  static String get absentDays => _t('Absent Days', 'أيام الغياب');
+  static String get lateCount => _t('Late Count', 'عدد التأخير');
+  static String get earlyOutCount => _t('Early Out Count', 'عدد الانصراف المبكر');
+  static String get overtimeMinutes => _t('Overtime Minutes', 'دقائق العمل الإضافي');
 
   // ── Dashboard ──
   static String get adminDashboard => _t('Admin Dashboard', 'لوحة التحكم');
@@ -341,11 +364,20 @@ class S {
   static String get assignedBy => _t('Assigned By', 'مسند من');
   static String get deadline => _t('Deadline', 'الموعد النهائي');
   static String get attachFile => _t('Attach File', 'إرفاق ملف');
+  static String get attachments => _t('Attachments', 'المرفقات');
+  static String get completionAttachments =>
+      _t('Completion Attachments', 'مرفقات الإكمال');
   static String get addComment => _t('Add Comment', 'إضافة تعليق');
   static String get taskFrom => _t('Task From', 'مهمة من');
   static String get createdAt => _t('Created At', 'أنشئت في');
+  static String get reviewedBy => _t('Reviewed By', 'تمت المراجعة بواسطة');
   static String get completed => _t('Completed', 'مكتمل');
   static String get failed => _t('Failed', 'فاشل');
+  static String get comment => _t('Comment…', 'تعليق…');
+  static String get addCompletionComment =>
+      _t('Add a completion comment (optional):', 'أضف تعليق إكمال (اختياري):');
+  static String get addReasonOptional =>
+      _t('Add a reason (optional):', 'أضف سبباً (اختياري):');
   static String get assignedTasks => _t('Assigned Tasks', 'المهام المسندة');
 
   // ── Appraisal extra ──
@@ -355,6 +387,73 @@ class S {
   static String get branchAdminWeight => _t('Branch Admin Weight', 'وزن مدير الفرع');
   static String get hrWeight => _t('HR Weight', 'وزن الموارد البشرية');
   static String get appraisalResults => _t('Appraisal Results', 'نتائج التقييم');
+  static String get appraisalCycles => _t('Appraisal Cycles', 'دورات التقييم');
+  static String get noAppraisalCycles =>
+      _t('No appraisal cycles', 'لا توجد دورات تقييم');
+  static String get startCycle => _t('Start Cycle', 'بدء دورة');
+  static String get closeCycle => _t('Close Cycle', 'إغلاق الدورة');
+  static String get closeCycleConfirm =>
+      _t('Close this appraisal cycle? This cannot be undone.',
+          'إغلاق دورة التقييم هذه؟ لا يمكن التراجع عن هذا الإجراء.');
+  static String get cycleAlreadyActive =>
+      _t('A cycle is already active for this branch',
+          'توجد دورة نشطة بالفعل لهذا الفرع');
+  static String get branchRequired =>
+      _t('Branch is required', 'الفرع مطلوب');
+  static String get active => _t('Active', 'نشطة');
+  static String get closed => _t('Closed', 'مغلقة');
+  static String get weights => _t('Weights', 'الأوزان');
+  static String get adminWeight =>
+      _t('Admin Weight', 'وزن المدير');
+
+  // ── Password change flow ──
+  static String get requestPasswordChange =>
+      _t('Request Password Change', 'طلب تغيير كلمة المرور');
+  static String get changePasswordNow =>
+      _t('Change Password Now', 'تغيير كلمة المرور الآن');
+  static String get passwordChangeRequestHelp => _t(
+      'Submit a request to your supervisor. Once approved, you can set a new password here.',
+      'قدّم طلباً إلى المشرف. عند الموافقة، يمكنك تعيين كلمة مرور جديدة هنا.');
+  static String get reasonOptional =>
+      _t('Reason (optional)', 'السبب (اختياري)');
+  static String get confirmNewPassword =>
+      _t('Confirm New Password', 'تأكيد كلمة المرور الجديدة');
+  static String get passwordTooShort =>
+      _t('Password must be at least 6 characters',
+          'يجب أن تكون كلمة المرور 6 أحرف على الأقل');
+  static String get passwordsDontMatch =>
+      _t('Passwords do not match', 'كلمتا المرور غير متطابقتين');
+  static String get passwordUpdated =>
+      _t('Password updated', 'تم تحديث كلمة المرور');
+
+  // ── Warehouse tasks ──
+  static String get itemCode => _t('Item Code', 'كود الصنف');
+  static String get itemCodeHelp =>
+      _t('Code to identify the items to count', 'كود تعريف الأصناف');
+  static String get countedTotal => _t('Counted Total', 'الإجمالي المحسوب');
+  static String get scanCode => _t('Scan Code', 'مسح الكود');
+  static String get scannedCodeMismatch =>
+      _t("Scanned code doesn't match the item code",
+          'الكود الممسوح لا يطابق كود الصنف');
+
+  // ── Day status / search ──
+  static String get setDayStatusTitle =>
+      _t('Set Employee Day Status', 'تعيين حالة يوم للموظف');
+  static String get searchEmployee =>
+      _t('Search employee…', 'بحث عن موظف…');
+  static String get noEmployees =>
+      _t('No employees found', 'لا يوجد موظفون');
+  static String get search => _t('Search', 'بحث');
+  static String get savingChanges =>
+      _t('Saving changes…', 'جارٍ حفظ التغييرات…');
+  static String get uploading => _t('Uploading…', 'جارٍ الرفع…');
+  static String get pleaseWait => _t('Please wait…', 'يرجى الانتظار…');
+  static String get assignedToLabel => _t('Assigned To', 'مُسند إلى');
+  static String get startedLabel => _t('Started', 'بدأ');
+  static String get completedLabel => _t('Completed', 'اكتمل');
+  static String get completionCommentLabel =>
+      _t('Completion Comment:', 'تعليق الإنجاز:');
+  static String untilDate(String date) => _t('Until $date', 'حتى $date');
 
   // ── Branch extra ──
   static String get weekendDays => _t('Weekend Days', 'أيام العطلة');
@@ -380,6 +479,11 @@ class S {
 
   // ── Day Status / Attendance Extra ──
   static String get dayStatus => _t('Day Status', 'حالة اليوم');
+  static String get setBranchDayStatus => _t('Set Branch Day Status', 'تعيين حالة يوم للفرع');
+  static String branchDayStatusApplied(int n) => _t(
+        'Day status applied to $n employees',
+        'تم تطبيق حالة اليوم على $n موظفين',
+      );
 
   // ── Manage Payslips Extra ──
   static String get allPayslips => _t('All Payslips', 'كل الرواتب');
@@ -464,9 +568,17 @@ class S {
   static String get positionOptional => _t('Position (optional)', 'المنصب (اختياري)');
   static String get referenceImageLabel => _t('Reference Face Image *', 'صورة الوجه المرجعية *');
   static String get locationGeofence => _t('Location Restriction (Geofence)', 'تقييد الموقع (السياج الجغرافي)');
+  static String get locationRequired => _t('Location is required. Please pick the work location on the map.', 'الموقع مطلوب. يرجى تحديد موقع العمل على الخريطة.');
   static String get geofenceDescription => _t('Set the allowed work location. Employee must be within this area to mark attendance.', 'حدد موقع العمل المسموح به. يجب أن يكون الموظف ضمن هذه المنطقة لتسجيل الحضور.');
   static String get geofenceAttendanceNote => _t('Employee must be within this area to mark attendance.', 'يجب أن يكون الموظف ضمن هذه المنطقة لتسجيل الحضور.');
   static String get noBranchesAvailable => _t('No branches available', 'لا توجد فروع متاحة');
+  static String get allowedRadius => _t('Allowed Radius', 'النطاق المسموح');
+  static String get confirmLocation => _t('Confirm Location', 'تأكيد الموقع');
+  static String get tapMapToSetLocation => _t('Tap the map to set the work location', 'انقر على الخريطة لتحديد موقع العمل');
+  static String geofenceRadiusHint(int meters) => _t(
+        'Employee must be within $meters meters to mark attendance',
+        'يجب أن يكون الموظف ضمن $meters متر لتسجيل الحضور',
+      );
 
   // ── Time ago ──
   static String mAgo(int n) => _t('${n}m ago', 'منذ ${n}د');
@@ -474,7 +586,13 @@ class S {
   static String dAgo(int n) => _t('${n}d ago', 'منذ ${n}ي');
 
   // ── Dynamic strings ──
-  static String noStatusRequests(String status) => _t('No $status requests', 'لا توجد طلبات $status');
+  static String noStatusRequests(String status) {
+    if (isArabic) {
+      const arStatus = {'pending': 'معلقة', 'approved': 'مقبولة', 'rejected': 'مرفوضة'};
+      return 'لا توجد طلبات ${arStatus[status] ?? status}';
+    }
+    return 'No $status requests';
+  }
   static String employeeCountLabel(int n) => _t('$n employees', '$n موظفين');
   static String deleteConfirmMessage(String name) => _t('Delete "$name"? This cannot be undone.', 'حذف "$name"؟ لا يمكن التراجع عن هذا.');
   static String holdConfirmMessage(String name) => _t('Put ${name}\'s account on hold? They will not be able to log in.', 'تعليق حساب $name؟ لن يتمكنوا من تسجيل الدخول.');
@@ -491,6 +609,16 @@ class S {
 
   // ── Branches extra2 ──
   static String get noBranchesYet => _t('No branches yet', 'لا توجد فروع بعد');
+
+  // ── Hierarchy view (super admin drill-downs) ──
+  static String get titles => _t('Titles', 'المسميات');
+  static String get monthsLabel => _t('Months', 'الأشهر');
+  static String get noTitlesFound => _t('No titles found', 'لا توجد مسميات');
+  static String get noMonthsFound => _t('No months found', 'لا توجد أشهر');
+  static String get hrTitle => _t('HR', 'الموارد البشرية');
+  static String get branchAdminTitle => _t('Branch Admin', 'مدير الفرع');
+  static String get employeeTitle => _t('Employee', 'موظف');
+  static String get superAdminTitle => _t('Super Admin', 'مسؤول أعلى');
 
   // ── Sunday-first weekdays (for reports) ──
   static List<String> get weekDaysSun => isArabic

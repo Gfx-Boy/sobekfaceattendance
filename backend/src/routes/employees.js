@@ -125,6 +125,7 @@ function serializeEmployee(emp) {
     allowed_longitude: emp.allowed_longitude,
     allowed_radius: emp.allowed_radius,
     is_on_hold: emp.is_on_hold || false,
+    basic_salary: emp.basic_salary || 0,
   };
 }
 
@@ -164,7 +165,7 @@ function issueAuthTokens(emp) {
 // POST /api/employees — create employee without face image (admin use)
 router.post('/', async (req, res) => {
   try {
-    const { name, email, department, role, employee_type, position, branch_id, branch_name, phone, address, password, allowed_latitude, allowed_longitude, allowed_radius } = req.body;
+    const { name, email, department, role, employee_type, position, branch_id, branch_name, phone, address, password, allowed_latitude, allowed_longitude, allowed_radius, basic_salary } = req.body;
 
     if (!name || !email) {
       return res.status(400).json({ error: 'Name and email are required' });
@@ -198,6 +199,7 @@ router.post('/', async (req, res) => {
     if (allowed_latitude) employee.allowed_latitude = parseFloat(allowed_latitude);
     if (allowed_longitude) employee.allowed_longitude = parseFloat(allowed_longitude);
     if (allowed_radius) employee.allowed_radius = parseFloat(allowed_radius);
+    if (basic_salary !== undefined) employee.basic_salary = Number(basic_salary) || 0;
 
     if (password && password.length >= 6) {
       employee.password_hash = await bcrypt.hash(password, 10);
@@ -371,6 +373,21 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Your account is on hold. Please contact your administrator.' });
     }
 
+    // Check branch availability (skip for super admin / unbranched accounts)
+    if (emp.branch_id && emp.role !== 'super_admin') {
+      const branch = await getJSON(`data/branches/branch-${emp.branch_id}.json`);
+      if (!branch) {
+        return res.status(403).json({ error: 'Your branch has been deleted. Please contact your administrator.' });
+      }
+      const status = (branch.status || 'work').toLowerCase();
+      if (status === 'hold') {
+        return res.status(403).json({ error: 'Your branch is currently on hold. Please contact your administrator.' });
+      }
+      if (status === 'closed' || branch.is_active === false) {
+        return res.status(403).json({ error: 'Your branch is closed. Please contact your administrator.' });
+      }
+    }
+
     // Update last_online and active session
     const tokens = issueAuthTokens(emp);
     emp.last_online = new Date().toISOString();
@@ -457,6 +474,8 @@ router.get('/:id', async (req, res) => {
       allowed_longitude: emp.allowed_longitude,
       allowed_radius: emp.allowed_radius,
       is_on_hold: emp.is_on_hold || false,
+      basic_salary: emp.basic_salary || 0,
+      password_reset_pending: emp.password_reset_pending === true,
     });
   } catch (error) {
     console.error('Get employee error:', error);
@@ -469,6 +488,20 @@ router.get('/', async (req, res) => {
   try {
     const branchFilter = req.query.branch_id;
     const keys = await listKeys('data/employees/');
+
+    // Build a set of existing branch ids once so we can drop orphans (#1)
+    const existingBranchIds = new Set();
+    try {
+      const bKeys = await listKeys('data/branches/');
+      for (const bk of bKeys) {
+        if (!bk.endsWith('.json')) continue;
+        const br = await getJSON(bk);
+        if (br && br.id) existingBranchIds.add(br.id);
+      }
+    } catch (e) {
+      console.error('Branch list for orphan check failed:', e);
+    }
+
     const employees = [];
     for (const key of keys) {
       if (key.endsWith('.json') && !key.includes('index')) {
@@ -476,6 +509,13 @@ router.get('/', async (req, res) => {
         if (emp) {
           // Filter by branch if requested
           if (branchFilter && emp.branch_id !== branchFilter) continue;
+          // Drop orphans: employees whose branch no longer exists.
+          // Super admin has no branch_id and stays visible; employees without
+          // branch_id are either unassigned (keep) or orphaned (skip only when
+          // they previously had a branch_id that is now gone).
+          if (emp.branch_id && !existingBranchIds.has(emp.branch_id)) {
+            continue;
+          }
           employees.push({
             id: emp.id,
             name: emp.name,
@@ -492,6 +532,7 @@ router.get('/', async (req, res) => {
             allowed_longitude: emp.allowed_longitude,
             allowed_radius: emp.allowed_radius,
             is_on_hold: emp.is_on_hold || false,
+            basic_salary: emp.basic_salary || 0,
           });
         }
       }
@@ -563,7 +604,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const updates = req.body;
-    const allowedFields = ['name', 'department', 'role', 'employee_type', 'branch_id', 'branch_name', 'address', 'phone', 'position', 'allowed_latitude', 'allowed_longitude', 'allowed_radius', 'is_on_hold'];
+    const allowedFields = ['name', 'department', 'role', 'employee_type', 'branch_id', 'branch_name', 'address', 'phone', 'position', 'allowed_latitude', 'allowed_longitude', 'allowed_radius', 'is_on_hold', 'basic_salary'];
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
         emp[field] = updates[field];
@@ -590,6 +631,15 @@ router.put('/:id', async (req, res) => {
       address: emp.address,
       phone: emp.phone,
       position: emp.position,
+      reference_image_url: emp.reference_image_url,
+      profile_image_url: emp.profile_image_url,
+      allowed_latitude: emp.allowed_latitude,
+      allowed_longitude: emp.allowed_longitude,
+      allowed_radius: emp.allowed_radius,
+      is_on_hold: emp.is_on_hold || false,
+      basic_salary: emp.basic_salary,
+      last_online: emp.last_online,
+      password_reset_pending: emp.password_reset_pending || false,
     });
   } catch (error) {
     console.error('Update employee error:', error);
@@ -648,6 +698,34 @@ router.post('/:id/set-password', async (req, res) => {
 async function getEmployee(id) {
   return await getJSON(employeeKey(id));
 }
+
+// POST /api/employees/:id/self-password — employee sets a new password after
+// their password-change request has been approved. Requires that the employee
+// record has `password_reset_pending = true`.
+router.post('/:id/self-password', async (req, res) => {
+  try {
+    const { new_password } = req.body;
+    if (!new_password || new_password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    const emp = await getJSON(employeeKey(req.params.id));
+    if (!emp) return res.status(404).json({ error: 'Employee not found' });
+    if (!emp.password_reset_pending) {
+      return res
+        .status(403)
+        .json({ error: 'No approved password-change request. Submit a request first.' });
+    }
+    emp.password_hash = await bcrypt.hash(new_password, 10);
+    emp.password_reset_pending = false;
+    emp.password_reset_request_id = null;
+    emp.password_updated_at = new Date().toISOString();
+    await putJSON(employeeKey(req.params.id), emp);
+    res.json({ message: 'Password updated' });
+  } catch (error) {
+    console.error('Self password reset error:', error);
+    res.status(500).json({ error: awsErrorMessage(error) });
+  }
+});
 
 module.exports = router;
 module.exports.getEmployee = getEmployee;

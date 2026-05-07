@@ -27,6 +27,8 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', requireAuth, attendanceRoutes);
 app.use('/api/requests', requireAuth, requestRoutes);
 app.use('/api/notifications', requireAuth, notificationRoutes);
+// Task attachments must be public — Flutter's Image.network cannot send auth headers
+app.get('/api/tasks/attachment/:filename', taskRoutes.serveAttachment);
 app.use('/api/tasks', requireAuth, taskRoutes);
 app.use('/api/appraisals', requireAuth, appraisalRoutes);
 app.use('/api/payslips', requireAuth, payslipRoutes);
@@ -40,5 +42,5 @@ app.get('/api/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Face Attendance API running on port ${PORT}`);
+  console.log(`Face Attendance API v1.1 running on port ${PORT}`);
 });

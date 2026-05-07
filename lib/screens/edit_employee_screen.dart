@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'location_picker_screen.dart';
 import '../l10n/app_localizations.dart';
+import '../widgets/blocking_overlay.dart';
 
 class EditEmployeeScreen extends StatefulWidget {
   final Employee employee;
@@ -23,6 +24,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   late TextEditingController _departmentController;
   late TextEditingController _positionController;
   late TextEditingController _phoneController;
+  late TextEditingController _salaryController;
   late TextEditingController _passwordController;
   late TextEditingController _latitudeController;
   late TextEditingController _longitudeController;
@@ -46,6 +48,10 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     _departmentController = TextEditingController(text: widget.employee.department);
     _positionController = TextEditingController(text: widget.employee.position ?? '');
     _phoneController = TextEditingController(text: widget.employee.phone ?? '');
+    _salaryController = TextEditingController(
+        text: (widget.employee.basicSalary ?? 0) > 0
+            ? widget.employee.basicSalary!.toStringAsFixed(0)
+            : '');
     _passwordController = TextEditingController();
     _selectedRole = widget.employee.role.name;
     _selectedType = widget.employee.employeeType.name;
@@ -79,6 +85,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     _departmentController.dispose();
     _positionController.dispose();
     _phoneController.dispose();
+    _salaryController.dispose();
     _passwordController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
@@ -89,6 +96,29 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   bool get _isEditingSelf {
     final me = context.read<AuthProvider>().employee;
     return me != null && me.id == widget.employee.id;
+  }
+
+  /// Location edit rules (#29, #30, #31, #33, #34, #35):
+  ///  - When editing self:
+  ///      * Branch admin / Super admin can change own location.
+  ///      * HR and Employee cannot change own location.
+  ///  - When editing someone else:
+  ///      * Branch admin / Super admin can change anyone's location.
+  ///      * HR can change location for default employees only (not BA, not HR peers).
+  bool get _canEditLocation {
+    final me = context.read<AuthProvider>().employee;
+    if (me == null) return false;
+    if (_isEditingSelf) {
+      return me.role == UserRole.branchAdmin || me.role == UserRole.superAdmin;
+    }
+    if (me.role == UserRole.superAdmin || me.role == UserRole.branchAdmin) {
+      return true;
+    }
+    if (me.role == UserRole.hr) {
+      // HR may change location only for default employees.
+      return widget.employee.role == UserRole.employee;
+    }
+    return false;
   }
 
   Future<void> _submit() async {
@@ -102,6 +132,8 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
         'employee_type': _selectedType,
         'position': _positionController.text.trim(),
         'phone': _phoneController.text.trim(),
+        'basic_salary':
+            double.tryParse(_salaryController.text.trim()) ?? 0,
         'branch_id': _selectedBranchId,
         'branch_name': _selectedBranchName,
       };
@@ -117,12 +149,12 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
         updates['allowed_longitude'] = null;
         updates['allowed_radius'] = null;
       }
-      await ApiService().updateEmployee(widget.employee.id, updates);
+      final updated = await ApiService().updateEmployee(widget.employee.id, updates);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(S.employeeUpdated), backgroundColor: AppTheme.accentGreen),
         );
-        Navigator.pop(context, true);
+        Navigator.pop(context, updated);
       }
     } catch (e) {
       if (mounted) {
@@ -162,13 +194,36 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(S.editEmployeeTitle)),
-      body: SingleChildScrollView(
+      body: BlockingOverlay(
+        blocking: _loading,
+        message: S.savingChanges,
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Face / profile image header (#38)
+              Builder(builder: (_) {
+                final imgUrl = widget.employee.profileImageUrl ??
+                    widget.employee.referenceImageUrl;
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: CircleAvatar(
+                      radius: 50,
+                      backgroundColor: context.colors.cardBg,
+                      backgroundImage:
+                          imgUrl != null && imgUrl.isNotEmpty ? NetworkImage(imgUrl) : null,
+                      child: imgUrl == null || imgUrl.isEmpty
+                          ? Icon(Icons.person,
+                              size: 48, color: context.colors.textMuted)
+                          : null,
+                    ),
+                  ),
+                );
+              }),
               // Email (read-only)
               TextFormField(
                 initialValue: widget.employee.email,
@@ -187,12 +242,48 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                 decoration: InputDecoration(labelText: S.fullName, prefixIcon: Icon(Icons.person_outline, color: context.colors.textSecondary)),
               ),
               SizedBox(height: 12),
-              TextFormField(
-                controller: _departmentController,
-                validator: (v) => v!.isEmpty ? S.required : null,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: InputDecoration(labelText: S.department, prefixIcon: Icon(Icons.business_outlined, color: context.colors.textSecondary)),
-              ),
+              Builder(builder: (_) {
+                final departmentOptions = <String, String>{
+                  'HR': 'HR',
+                  'sales': S.sales,
+                  'accountant': S.accountant,
+                  'warehouse': S.warehouse,
+                  'IT': S.itDepartment,
+                  'Management': S.management,
+                  'other': S.other,
+                };
+                final current = _departmentController.text.trim();
+                final value = departmentOptions.containsKey(current)
+                    ? current
+                    : departmentOptions.keys.first;
+                if (!departmentOptions.containsKey(current)) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _departmentController.text = value;
+                  });
+                }
+                return DropdownButtonFormField<String>(
+                  value: value,
+                  dropdownColor: context.colors.cardBgLighter,
+                  decoration: InputDecoration(
+                    labelText: S.department,
+                    filled: true,
+                    fillColor: context.colors.cardBg,
+                    prefixIcon: Icon(Icons.business_outlined, color: context.colors.textSecondary),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.colors.surfaceBorder)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: context.colors.surfaceBorder)),
+                  ),
+                  style: TextStyle(color: context.colors.textPrimary),
+                  items: departmentOptions.entries
+                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() => _departmentController.text = v);
+                    }
+                  },
+                  validator: (v) => (v == null || v.isEmpty) ? S.required : null,
+                );
+              }),
               SizedBox(height: 12),
               TextFormField(
                 controller: _positionController,
@@ -208,6 +299,27 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                 decoration: InputDecoration(labelText: S.phone, prefixIcon: Icon(Icons.phone_outlined, color: context.colors.textSecondary)),
               ),
               SizedBox(height: 12),
+              Builder(builder: (context) {
+                final currentRole =
+                    context.read<AuthProvider>().employee?.role ?? UserRole.employee;
+                final canEditSalary = currentRole == UserRole.superAdmin ||
+                    currentRole == UserRole.branchAdmin ||
+                    currentRole == UserRole.hr;
+                if (!canEditSalary) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: TextFormField(
+                    controller: _salaryController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: TextStyle(color: context.colors.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: S.basicSalary,
+                      prefixIcon: Icon(Icons.payments_outlined,
+                          color: context.colors.textSecondary),
+                    ),
+                  ),
+                );
+              }),
               TextFormField(
                 controller: _passwordController,
                 obscureText: true,
@@ -359,7 +471,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                         Switch(
                           value: _enableGeofence,
                           activeColor: AppTheme.primaryBlue,
-                          onChanged: _isEditingSelf ? null : (v) => setState(() => _enableGeofence = v),
+                          onChanged: _canEditLocation ? (v) => setState(() => _enableGeofence = v) : null,
                         ),
                       ],
                     ),
@@ -375,6 +487,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: _latitudeController,
+                              readOnly: !_canEditLocation,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                               validator: _enableGeofence ? (v) => v!.isEmpty ? S.required : null : null,
                               style: TextStyle(color: context.colors.textPrimary),
@@ -385,6 +498,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                           Expanded(
                             child: TextFormField(
                               controller: _longitudeController,
+                              readOnly: !_canEditLocation,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                               validator: _enableGeofence ? (v) => v!.isEmpty ? S.required : null : null,
                               style: TextStyle(color: context.colors.textPrimary),
@@ -396,6 +510,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                       SizedBox(height: 12),
                       TextFormField(
                         controller: _radiusController,
+                        readOnly: !_canEditLocation,
                         keyboardType: TextInputType.number,
                         validator: _enableGeofence ? (v) => v!.isEmpty ? S.required : null : null,
                         style: TextStyle(color: context.colors.textPrimary),
@@ -405,7 +520,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: _openMapPicker,
+                          onPressed: _canEditLocation ? _openMapPicker : null,
                           icon: const Icon(Icons.map_outlined),
                           label: Text(_pickedLocation == null ? S.pickLocationOnMap : S.changeLocation),
                           style: OutlinedButton.styleFrom(
@@ -430,6 +545,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

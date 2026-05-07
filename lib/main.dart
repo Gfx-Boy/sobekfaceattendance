@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'config/app_theme.dart';
@@ -21,11 +22,14 @@ import 'screens/add_employee_screen.dart';
 import 'screens/edit_employee_screen.dart';
 import 'screens/branches_screen.dart';
 import 'screens/manage_requests_screen.dart';
+import 'screens/my_requests_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/create_task_screen.dart';
 import 'screens/create_request_screen.dart';
 import 'screens/appraisals_screen.dart';
 import 'screens/create_appraisal_screen.dart';
+import 'screens/appraisal_cycles_screen.dart';
+import 'screens/set_day_status_screen.dart';
 import 'screens/payslips_screen.dart';
 import 'screens/manage_payslips_screen.dart';
 import 'screens/reports_screen.dart';
@@ -36,6 +40,7 @@ import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting();
   try {
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -88,11 +93,14 @@ class FaceAttendanceApp extends StatelessWidget {
           '/add-employee': (_) => const AddEmployeeScreen(),
           '/branches': (_) => const BranchesScreen(),
           '/manage-requests': (_) => const ManageRequestsScreen(),
+          '/my-requests': (_) => const MyRequestsScreen(),
           '/tasks': (_) => const TasksScreen(),
           '/create-task': (_) => const CreateTaskScreen(),
           '/create-request': (_) => const CreateRequestScreen(),
           '/appraisals': (_) => const AppraisalsScreen(),
           '/create-appraisal': (_) => const CreateAppraisalScreen(),
+          '/appraisal-cycles': (_) => const AppraisalCyclesScreen(),
+          '/set-day-status': (_) => const SetDayStatusScreen(),
           '/payslips': (_) => const PayslipsScreen(),
           '/manage-payslips': (_) => const ManagePayslipsScreen(),
           '/reports': (_) => const ReportsScreen(),

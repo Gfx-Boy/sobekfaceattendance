@@ -61,10 +61,27 @@ router.post('/cycles', async (req, res) => {
   }
 });
 
+// Auto-close any cycles whose end_date is in the past.
+async function autoExpireCycles(cycles) {
+  const now = new Date();
+  const updated = [];
+  for (const c of cycles) {
+    if (c.status === 'active' && c.end_date && new Date(c.end_date) < now) {
+      c.status = 'closed';
+      c.closed_at = now.toISOString();
+      c.closed_reason = 'auto_expired';
+      try { await putJSON(cycleKey(c.id), c); } catch (_) {}
+    }
+    updated.push(c);
+  }
+  return updated;
+}
+
 // GET /api/appraisals/cycles — list all cycles
 router.get('/cycles', async (req, res) => {
   try {
-    const cycles = await listJSON('data/appraisal-cycles/');
+    let cycles = await listJSON('data/appraisal-cycles/');
+    cycles = await autoExpireCycles(cycles);
     cycles.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const branchFilter = req.query.branch_id;
     if (branchFilter) {
@@ -77,6 +94,34 @@ router.get('/cycles', async (req, res) => {
   }
 });
 
+// PATCH /api/appraisals/cycles/:id/close — close a cycle (Branch Admin only)
+router.patch('/cycles/:id/close', async (req, res) => {
+  try {
+    const cycle = await getJSON(cycleKey(req.params.id));
+    if (!cycle) return res.status(404).json({ error: 'Cycle not found' });
+    cycle.status = 'closed';
+    cycle.closed_at = new Date().toISOString();
+    cycle.closed_reason = req.body?.reason || 'manual';
+    await putJSON(cycleKey(req.params.id), cycle);
+    res.json(cycle);
+  } catch (error) {
+    console.error('Close cycle error:', error);
+    res.status(500).json({ error: 'Failed to close cycle' });
+  }
+});
+
+// Helper: look up the active cycle for a branch (if any)
+async function findActiveCycle(branchId) {
+  if (!branchId) return null;
+  try {
+    let cycles = await listJSON('data/appraisal-cycles/');
+    cycles = await autoExpireCycles(cycles);
+    return cycles.find(c => c.branch_id === branchId && c.status === 'active') || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 // POST /api/appraisals — create a new appraisal
 router.post('/', async (req, res) => {
   try {
@@ -84,6 +129,34 @@ router.post('/', async (req, res) => {
 
     if (!employee_id || !evaluator_id || !period) {
       return res.status(400).json({ error: 'employee_id, evaluator_id, and period are required' });
+    }
+
+    // #23/#37 — HR cannot appraise a Branch Admin
+    if ((evaluator_role || '').toLowerCase() === 'hr') {
+      try {
+        const target = await getJSON(`data/employees/employee-${employee_id}.json`);
+        if (target && (target.role || '').toLowerCase() === 'branchadmin') {
+          return res.status(403).json({ error: 'HR cannot appraise a Branch Admin' });
+        }
+      } catch (_) { /* noop */ }
+    }
+
+    // #18 — An appraisal must belong to an active cycle for the branch.
+    // If cycle_id provided, verify it's still active; otherwise resolve by branch.
+    let resolvedCycleId = cycle_id || null;
+    if (cycle_id) {
+      const c = await getJSON(cycleKey(cycle_id));
+      if (!c || c.status !== 'active') {
+        return res.status(400).json({ error: 'Referenced appraisal cycle is not active' });
+      }
+    } else {
+      const active = await findActiveCycle(branch_id);
+      if (!active) {
+        return res.status(400).json({
+          error: 'No active appraisal cycle for this branch. Ask the branch admin to start one.',
+        });
+      }
+      resolvedCycleId = active.id;
     }
 
     const id = uuidv4();
@@ -98,7 +171,7 @@ router.post('/', async (req, res) => {
       scores: scores || {},
       comments: comments || '',
       overall_score: overall_score || 0,
-      cycle_id: cycle_id || null,
+      cycle_id: resolvedCycleId,
       branch_id: branch_id || null,
       status: 'submitted',
       created_at: new Date().toISOString(),

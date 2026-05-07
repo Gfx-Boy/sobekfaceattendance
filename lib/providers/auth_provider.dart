@@ -27,7 +27,18 @@ class AuthProvider extends ChangeNotifier {
   String? _error;
 
   AuthProvider({ApiService? apiService})
-      : _apiService = apiService ?? ApiService();
+      : _apiService = apiService ?? ApiService() {
+    // If the backend tells us the account logged in on another device,
+    // force a client-side logout so stale tokens don't linger.
+    ApiService.onSessionInvalidated = () {
+      // Run asynchronously to avoid reentrant calls during an in-flight request.
+      Future.microtask(() async {
+        if (_employee != null) {
+          await logout();
+        }
+      });
+    };
+  }
 
   Employee? get employee => _employee;
   bool get isLoading => _isLoading;
@@ -179,6 +190,22 @@ class AuthProvider extends ChangeNotifier {
       isOnHold: _employee!.isOnHold,
     );
     notifyListeners();
+  }
+
+  /// Update local employee state from an updated Employee model.
+  void updateEmployee(Employee updated) {
+    _employee = updated;
+    notifyListeners();
+  }
+
+  /// Reload the current employee profile from the backend.
+  Future<void> refreshProfile() async {
+    if (_employee == null) return;
+    try {
+      final fresh = await _apiService.getEmployee(_employee!.id);
+      _employee = fresh;
+      notifyListeners();
+    } catch (_) {/* ignore refresh errors */}
   }
 
   Future<void> _persistSession(

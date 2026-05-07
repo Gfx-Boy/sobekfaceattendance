@@ -19,17 +19,23 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
   late TabController _tabController;
   List<AppRequest> _requests = [];
   bool _loading = true;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.toLowerCase());
+    });
     _loadRequests();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -48,8 +54,17 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
   }
 
   List<AppRequest> _filterByStatus(String status) {
-    if (status == 'all') return _requests;
-    return _requests.where((r) => r.status.name == status).toList();
+    Iterable<AppRequest> base =
+        status == 'all' ? _requests : _requests.where((r) => r.status.name == status);
+    if (_searchQuery.isNotEmpty) {
+      base = base.where((r) {
+        return r.title.toLowerCase().contains(_searchQuery) ||
+            r.description.toLowerCase().contains(_searchQuery) ||
+            (r.employeeName.toLowerCase().contains(_searchQuery)) ||
+            r.type.name.toLowerCase().contains(_searchQuery);
+      });
+    }
+    return base.toList();
   }
 
   Future<void> _reviewRequest(AppRequest request, String status) async {
@@ -92,23 +107,47 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _loadRequests,
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildList(_filterByStatus('pending')),
-                  _buildList(_filterByStatus('approved')),
-                  _buildList(_filterByStatus('rejected')),
-                ],
-              ),
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  child: TextField(
+                    controller: _searchController,
+                    style: TextStyle(color: context.colors.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: S.searchRequests,
+                      prefixIcon: Icon(Icons.search,
+                          color: context.colors.textSecondary),
+                      filled: true,
+                      fillColor: context.colors.cardBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _loadRequests,
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildList(_filterByStatus('pending')),
+                        _buildList(_filterByStatus('approved')),
+                        _buildList(_filterByStatus('rejected')),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
     );
   }
 
   Widget _buildList(List<AppRequest> requests) {
     if (requests.isEmpty) {
-      return Center(child: Text('No requests', style: TextStyle(color: context.colors.textSecondary)));
+      return Center(child: Text(S.noRequests, style: TextStyle(color: context.colors.textSecondary)));
     }
     return ListView.builder(
       padding: const EdgeInsets.all(12),
@@ -178,7 +217,7 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
               ]),
             ],
             SizedBox(height: 4),
-            Text('${request.typeDisplayName} · ${DateFormat('MMM d, y').format(request.createdAt)}',
+            Text('${request.typeDisplayName} · ${DateFormat('MMM d, y', S.locale.languageCode).format(request.createdAt)}',
                 style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
             if (request.status == RequestStatus.pending && canReview) ...[
               const SizedBox(height: 10),
@@ -188,7 +227,7 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
                     child: OutlinedButton(
                       onPressed: () => _reviewRequest(request, 'rejected'),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: AppTheme.checkOutRed)),
-                      child: const Text('Reject', style: TextStyle(color: AppTheme.checkOutRed)),
+                      child: Text(S.reject, style: const TextStyle(color: AppTheme.checkOutRed)),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -205,6 +244,15 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
         ),
       ),
     );
+  }
+
+  String _localizedStatus(RequestStatus status) {
+    switch (status) {
+      case RequestStatus.approved: return S.approved.toUpperCase();
+      case RequestStatus.rejected: return S.rejected.toUpperCase();
+      case RequestStatus.forwarded: return S.pending.toUpperCase();
+      default: return S.pending.toUpperCase();
+    }
   }
 
   void _showRequestDetails(AppRequest request) {
@@ -237,32 +285,32 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
-                child: Text(request.status.name.toUpperCase(), style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 12)),
+                child: Text(_localizedStatus(request.status), style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 12)),
               ),
             ]),
             const SizedBox(height: 16),
-            _detailRow(Icons.person_outline, 'Employee', request.employeeName),
+            _detailRow(Icons.person_outline, S.employee, request.employeeName),
             if (request.employeeEmail != null && request.employeeEmail!.isNotEmpty)
               _detailRow(Icons.email_outlined, S.email, request.employeeEmail!),
             if (request.branchName != null && request.branchName!.isNotEmpty)
               _detailRow(Icons.business, S.branch, request.branchName!),
-            _detailRow(Icons.category_outlined, 'Type', '${request.typeDisplayName} (${request.category.name.toUpperCase()})'),
-            _detailRow(Icons.calendar_today, 'Created', DateFormat('MMM d, y · HH:mm').format(request.createdAt)),
+            _detailRow(Icons.category_outlined, S.requestType, '${request.typeDisplayName} (${request.category.name.toUpperCase()})'),
+            _detailRow(Icons.calendar_today, S.createdAt, DateFormat('MMM d, y · HH:mm', S.locale.languageCode).format(request.createdAt)),
             if (request.startDate != null)
-              _detailRow(Icons.date_range, 'From', DateFormat('MMM d, y').format(request.startDate!)),
+              _detailRow(Icons.date_range, S.from, DateFormat('MMM d, y', S.locale.languageCode).format(request.startDate!)),
             if (request.endDate != null)
-              _detailRow(Icons.date_range, 'To', DateFormat('MMM d, y').format(request.endDate!)),
+              _detailRow(Icons.date_range, S.end, DateFormat('MMM d, y', S.locale.languageCode).format(request.endDate!)),
             SizedBox(height: 12),
-            Text('Description', style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
+            Text(S.description, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
             SizedBox(height: 6),
             Text(request.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 14)),
             if (request.reviewedBy != null) ...[
               const SizedBox(height: 12),
-              _detailRow(Icons.rate_review_outlined, 'Reviewed by', request.reviewedBy!),
+              _detailRow(Icons.rate_review_outlined, S.reviewedBy, request.reviewedBy!),
             ],
             if (request.comment != null && request.comment!.isNotEmpty) ...[
               const SizedBox(height: 8),
-              _detailRow(Icons.comment_outlined, 'Comment', request.comment!),
+              _detailRow(Icons.comment_outlined, S.comment, request.comment!),
             ],
           ]),
         ),

@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { putJSON, getJSON, listJSON } = require('../services/s3Service');
 const admin = require('firebase-admin');
@@ -14,14 +16,30 @@ const fcmTokensKey = (empId) => `data/fcm-tokens/${empId}.json`;
 let firebaseInitialized = false;
 (function initFirebase() {
   try {
-    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (serviceAccountJson) {
-      const serviceAccount = JSON.parse(serviceAccountJson);
+    let serviceAccount = null;
+    const filePath = process.env.FIREBASE_SERVICE_ACCOUNT_FILE;
+    const inlineJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+    if (filePath) {
+      const resolved = path.isAbsolute(filePath)
+        ? filePath
+        : path.resolve(process.cwd(), filePath);
+      if (fs.existsSync(resolved)) {
+        serviceAccount = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+      } else {
+        console.warn(`FIREBASE_SERVICE_ACCOUNT_FILE points to missing path: ${resolved}`);
+      }
+    }
+    if (!serviceAccount && inlineJson) {
+      serviceAccount = JSON.parse(inlineJson);
+    }
+
+    if (serviceAccount) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
       firebaseInitialized = true;
-      console.log('Firebase Admin initialized via service account');
+      console.log(`Firebase Admin initialized (project: ${serviceAccount.project_id})`);
     } else {
-      console.log('FIREBASE_SERVICE_ACCOUNT not set — FCM push disabled');
+      console.log('FIREBASE_SERVICE_ACCOUNT[_FILE] not set — FCM push disabled');
     }
   } catch (e) {
     console.error('Firebase Admin init failed:', e.message);
@@ -83,8 +101,26 @@ router.post('/unregister-token', async (req, res) => {
 // ---------- Send FCM push utility ----------
 // Uses firebase-admin SDK (FCM v1 API)
 async function sendPushToEmployee(employeeId, title, body, data) {
+  // Always persist an in-app notification record so the bell/list works
+  // even if FCM isn't configured or the device has no token yet.
+  try {
+    const id = uuidv4();
+    const notification = {
+      id,
+      employee_id: employeeId,
+      type: (data && data.type) || 'general',
+      title,
+      body: body || '',
+      data: data || {},
+      is_read: false,
+      created_at: new Date().toISOString(),
+    };
+    await putJSON(notifKey(employeeId, id), notification);
+  } catch (e) {
+    console.error('Persist in-app notification failed:', e.message);
+  }
+
   if (!firebaseInitialized) {
-    console.log('FCM not initialized — push skipped for', employeeId);
     return;
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../l10n/app_localizations.dart';
@@ -141,11 +142,19 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
       );
       return;
     }
-    if (_type == 'emailAndUserAccount' && _emailFieldController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.emailRequiredForType), backgroundColor: AppTheme.checkOutRed),
-      );
-      return;
+    if (_type == 'emailAndUserAccount') {
+      if (_emailFieldController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.emailRequiredForType), backgroundColor: AppTheme.checkOutRed),
+        );
+        return;
+      }
+      if (_phoneFieldController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.phoneRequired), backgroundColor: AppTheme.checkOutRed),
+        );
+        return;
+      }
     }
 
     setState(() => _loading = true);
@@ -217,6 +226,33 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Request date (read-only, today)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: context.colors.cardBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: context.colors.surfaceBorder),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_today_outlined, color: AppTheme.primaryBlue, size: 18),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(S.requestDate, style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
+                        const SizedBox(height: 2),
+                        Text(
+                          DateFormat('EEEE dd-MM-yyyy', S.locale.languageCode).format(DateTime.now()),
+                          style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               // Category
               DropdownButtonFormField<String>(
                 value: _category,
@@ -412,9 +448,10 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
           TextFormField(
             controller: _phoneFieldController,
             keyboardType: TextInputType.phone,
+            validator: (v) => (v ?? '').trim().isEmpty ? S.phoneRequired : null,
             style: TextStyle(color: context.colors.textPrimary),
             decoration: InputDecoration(
-              labelText: S.phoneNumber,
+              labelText: '${S.phoneNumber} *',
               prefixIcon: Icon(Icons.phone_outlined, color: context.colors.textSecondary),
             ),
           ),

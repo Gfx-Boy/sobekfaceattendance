@@ -93,8 +93,9 @@ class _AttendanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('EEE, MMM d, yyyy');
-    final timeFormat = DateFormat('hh:mm a');
+    final loc = S.locale.languageCode;
+    final dateFormat = DateFormat('EEE, MMM d, yyyy', loc);
+    final timeFormat = DateFormat('hh:mm a', loc);
     final isSignOut = record.type == 'sign_out';
     final isBreak = record.type == 'break_start' || record.type == 'break_end';
     final typeLabel = switch (record.type) {

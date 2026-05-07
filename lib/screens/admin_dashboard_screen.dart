@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/dashboard_stats.dart';
+import '../models/employee.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
@@ -103,18 +104,107 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                       style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
-                    _actionTile(Icons.people_outline, 'Manage Employees', () => Navigator.pushNamed(context, '/employees')),
-                    _actionTile(Icons.business, 'Manage Branches', () => Navigator.pushNamed(context, '/branches')),
-                    _actionTile(Icons.bar_chart, 'Attendance Reports', () => Navigator.pushNamed(context, '/reports')),
-                    _actionTile(Icons.playlist_add_check, 'Manage Requests', () => Navigator.pushNamed(context, '/manage-requests')),
-                    _actionTile(Icons.person_add, 'Add Employee', () => Navigator.pushNamed(context, '/add-employee')),
-                    _actionTile(Icons.assessment, 'Appraisals', () => Navigator.pushNamed(context, '/appraisals')),
-                    _actionTile(Icons.receipt_long, 'Payslips', () => Navigator.pushNamed(context, '/manage-payslips')),
+                    _actionTile(Icons.people_outline, S.manageEmployees, () => Navigator.pushNamed(context, '/employees')),
+                    _actionTile(
+                      Icons.business,
+                      employee?.role == UserRole.branchAdmin
+                          ? S.branchSettings
+                          : S.manageBranches,
+                      () => Navigator.pushNamed(context, '/branches'),
+                    ),
+                    _actionTile(Icons.bar_chart, S.attendanceReports, () => Navigator.pushNamed(context, '/reports')),
+                    _actionTile(Icons.playlist_add_check, S.manageRequests, () => Navigator.pushNamed(context, '/manage-requests')),
+                    _actionTile(Icons.person_add, S.addEmployeeTitle, () => Navigator.pushNamed(context, '/add-employee')),
+                    _actionTile(Icons.assessment, S.appraisals, () => Navigator.pushNamed(context, '/appraisals')),
+                    _actionTile(Icons.receipt_long, S.payslips, () => Navigator.pushNamed(context, '/manage-payslips')),
+                    if (employee?.branchId != null)
+                      _actionTile(Icons.event_available, S.setBranchDayStatus,
+                          () => _showSetBranchDayStatusDialog(employee!.branchId!, employee.name)),
+                    _actionTile(Icons.event_note, S.setDayStatusTitle,
+                        () => Navigator.pushNamed(context, '/set-day-status')),
                   ],
                 ),
               ),
             ),
     );
+  }
+
+  Future<void> _showSetBranchDayStatusDialog(String branchId, String? actorName) async {
+    DateTime selectedDate = DateTime.now();
+    String selectedStatus = 'holiday';
+    const statuses = ['holiday', 'vacation', 'attend', 'absent'];
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          backgroundColor: context.colors.cardBg,
+          title: Text(S.setBranchDayStatus),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.calendar_today, color: AppTheme.primaryBlue),
+                title: Text('${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}'),
+                trailing: const Icon(Icons.edit_calendar),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: selectedDate,
+                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                  );
+                  if (picked != null) setSt(() => selectedDate = picked);
+                },
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: selectedStatus,
+                decoration: InputDecoration(labelText: S.dayStatus),
+                items: statuses
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (v) => setSt(() => selectedStatus = v ?? selectedStatus),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false), child: Text(S.cancel)),
+            ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true), child: Text(S.confirm)),
+          ],
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+    final dateStr =
+        '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}';
+    try {
+      final updated = await ApiService().setBranchDayStatus(
+        branchId: branchId,
+        date: dateStr,
+        status: selectedStatus,
+        appliedBy: actorName,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(S.branchDayStatusApplied(updated)),
+            backgroundColor: AppTheme.accentGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${S.error}: $e'), backgroundColor: AppTheme.checkOutRed),
+        );
+      }
+    }
   }
 
   Widget _statCard(String label, String value, IconData icon, Color color) {

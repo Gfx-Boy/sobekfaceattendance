@@ -18,6 +18,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   List<Employee> _employees = [];
   List<Employee> _filtered = [];
   List<Branch> _branches = [];
+  Map<String, int> _branchEmployeeCounts = {};
   Branch? _selectedBranch; // SA: pick branch first
   bool _loading = true;
   String? _error;
@@ -59,7 +60,22 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     try {
       setState(() { _loading = true; _error = null; });
       final branches = await ApiService().getBranches();
-      if (mounted) setState(() { _branches = branches; _loading = false; });
+      // Compute employee counts directly from the employees list
+      // (more reliable than the backend-stored count)
+      Map<String, int> counts = {};
+      try {
+        final allEmps = await ApiService().getAllEmployees();
+        for (final e in allEmps) {
+          if (e.branchId != null && e.branchId!.isNotEmpty) {
+            counts[e.branchId!] = (counts[e.branchId!] ?? 0) + 1;
+          }
+        }
+      } catch (_) {}
+      if (mounted) setState(() {
+        _branches = branches;
+        _branchEmployeeCounts = counts;
+        _loading = false;
+      });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
     }
@@ -212,7 +228,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                       child: Text(b.status, style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w500)),
                                     ),
                                     SizedBox(width: 8),
-                                    Text(S.employeeCountLabel(b.employeeCount), style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
+                                    Text(S.employeeCountLabel(_branchEmployeeCounts[b.id] ?? b.employeeCount), style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
                                   ]),
                                 ],
                               ),
@@ -392,7 +408,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           color: context.colors.cardBgLighter,
           onSelected: (value) {
             if (value == 'delete') _deleteEmployee(emp);
-            if (value == 'edit') Navigator.pushNamed(context, '/edit-employee', arguments: emp);
+            if (value == 'edit') Navigator.pushNamed(context, '/edit-employee', arguments: emp).then((result) {
+              if (result is Employee && mounted) {
+                setState(() {
+                  final idx = _employees.indexWhere((e) => e.id == result.id);
+                  if (idx != -1) _employees[idx] = result;
+                  final fidx = _filtered.indexWhere((e) => e.id == result.id);
+                  if (fidx != -1) _filtered[fidx] = result;
+                });
+                Future.delayed(const Duration(seconds: 2), _loadEmployees);
+              }
+            });
             if (value == 'hold') _toggleHold(emp);
           },
           itemBuilder: (context) => [

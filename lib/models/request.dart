@@ -15,6 +15,7 @@ enum RequestType {
   vacation,
   leave,
   leavePermission,
+  passwordChange,
   other,
 }
 
@@ -137,6 +138,8 @@ class AppRequest {
         return 'Leave';
       case RequestType.leavePermission:
         return 'Leave Permission';
+      case RequestType.passwordChange:
+        return 'Password Change';
       case RequestType.other:
         return 'Other';
     }
