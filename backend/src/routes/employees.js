@@ -374,7 +374,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Check branch availability (skip for super admin / unbranched accounts)
-    if (emp.branch_id && emp.role !== 'super_admin') {
+    if (emp.branch_id && emp.role !== 'superAdmin') {
       const branch = await getJSON(`data/branches/branch-${emp.branch_id}.json`);
       if (!branch) {
         return res.status(403).json({ error: 'Your branch has been deleted. Please contact your administrator.' });
