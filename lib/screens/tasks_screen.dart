@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+// Hide mobile_scanner's Barcode to avoid clashing with barcode_widget's
+// Barcode (used for rendering); we only need BarcodeCapture from here.
+import 'package:mobile_scanner/mobile_scanner.dart' hide Barcode;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
