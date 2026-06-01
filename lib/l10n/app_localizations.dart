@@ -352,6 +352,7 @@ class S {
   static String get attendanceMonitorLabel => _t('Attendance Monitor', 'مراقبة الحضور');
 
   // ── Request types ──
+  static String get requests => _t('Requests', 'الطلبات');
   static String get myRequests => _t('My Requests', 'طلباتي');
   static String get viewRequests => _t('View Requests', 'عرض الطلبات');
   static String get pending => _t('Pending', 'قيد الانتظار');
@@ -480,10 +481,16 @@ class S {
   // ── Day Status / Attendance Extra ──
   static String get dayStatus => _t('Day Status', 'حالة اليوم');
   static String get setBranchDayStatus => _t('Set Branch Day Status', 'تعيين حالة يوم للفرع');
+  static String get setBranchStatus => _t('Branch Status', 'حالة الفرع');
+  static String get tapDayToSetBranchStatus => _t('Tap a day to set status for all branch employees', 'انقر على يوم لتعيين الحالة لجميع موظفي الفرع');
   static String branchDayStatusApplied(int n) => _t(
         'Day status applied to $n employees',
         'تم تطبيق حالة اليوم على $n موظفين',
       );
+  static String get chooseBranchToApply =>
+      _t('Choose the branch to apply the rule', 'اختر الفرع لتطبيق القاعدة');
+  static String get branchRules => _t('Branch Rules', 'قواعد الفرع');
+  static String get weeklyHolidays => _t('Weekly Holidays', 'العطلات الأسبوعية');
 
   // ── Manage Payslips Extra ──
   static String get allPayslips => _t('All Payslips', 'كل الرواتب');

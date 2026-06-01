@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
 import '../models/attendance_record.dart';
+import '../models/request.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'package:intl/intl.dart';
@@ -38,6 +39,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
   // Level 4: calendar
   List<AttendanceRecord> _attendanceRecords = [];
+  List<AppRequest> _employeeRequests = [];
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
 
   bool get _isSA =>
@@ -126,9 +128,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
   Future<void> _loadAttendance(String employeeId) async {
     setState(() => _loading = true);
     try {
-      _attendanceRecords = await ApiService().getAttendanceHistory(employeeId);
+      final results = await Future.wait([
+        ApiService().getAttendanceHistory(employeeId),
+        ApiService().getRequests(employeeId),
+      ]);
+      _attendanceRecords = results[0] as List<AttendanceRecord>;
+      _employeeRequests = results[1] as List<AppRequest>;
     } catch (_) {
       _attendanceRecords = [];
+      _employeeRequests = [];
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -496,10 +504,19 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   .where((r) => r.type == 'sign_out' || r.type == 'check_out')
                   .toList();
 
+              final dayRequests = _employeeRequests.where((r) {
+                if (r.startDate == null) return false;
+                final s = DateFormat('yyyy-MM-dd').format(r.startDate!);
+                final e = r.endDate != null
+                    ? DateFormat('yyyy-MM-dd').format(r.endDate!)
+                    : s;
+                return dateKey.compareTo(s) >= 0 && dateKey.compareTo(e) <= 0;
+              }).toList();
+
               return GestureDetector(
-                onTap: (records.isEmpty && status.isEmpty)
+                onTap: (records.isEmpty && status.isEmpty && dayRequests.isEmpty)
                     ? null
-                    : () => _showDayDetail(date, records, status),
+                    : () => _showDayDetail(date, records, status, dayRequests),
                 child: Container(
                   margin: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
@@ -623,7 +640,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   void _showDayDetail(
-      DateTime date, List<AttendanceRecord> records, String status) {
+      DateTime date, List<AttendanceRecord> records, String status, [List<AppRequest> dayRequests = const []]) {
     showModalBottomSheet(
       context: context,
       backgroundColor: context.colors.cardBg,
@@ -662,40 +679,92 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            if (records.isEmpty)
+            // Sign-in / Sign-out records
+            if (records.isEmpty && dayRequests.isEmpty)
               Text(S.noRecordsForThisDay,
                   style: TextStyle(color: context.colors.textSecondary))
-            else
+            else ...[  
               ...records.map((r) {
-                final isIn = r.type == 'sign_in' || r.type == 'check_in';
-                final dt = r.timestamp;
+                final type = r.type;
+                final isIn = type == 'sign_in' || type == 'check_in';
+                final isBreak = type == 'break_start' || type == 'break_end';
+                final isOut = type == 'sign_out' || type == 'check_out';
+                if (!isIn && !isOut && !isBreak) return const SizedBox.shrink();
+                IconData icon;
+                Color color;
+                String label;
+                if (isIn) {
+                  icon = Icons.login; color = AppTheme.accentGreen; label = S.signIn;
+                } else if (isOut) {
+                  icon = Icons.logout; color = AppTheme.checkOutRed; label = S.signOut;
+                } else if (type == 'break_start') {
+                  icon = Icons.coffee; color = Colors.orange; label = S.breakStart;
+                } else {
+                  icon = Icons.play_circle_outline; color = Colors.orange; label = S.breakEnd;
+                }
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      Icon(isIn ? Icons.login : Icons.logout,
-                          color: isIn
-                              ? AppTheme.accentGreen
-                              : AppTheme.checkOutRed,
-                          size: 18),
+                      Icon(icon, color: color, size: 18),
                       const SizedBox(width: 8),
                       Text(
-                        DateFormat('h:mm a', S.locale.languageCode).format(dt),
-                        style: TextStyle(
-                            color: isIn
-                                ? AppTheme.accentGreen
-                                : AppTheme.checkOutRed,
-                            fontWeight: FontWeight.w600),
+                        DateFormat('h:mm a', S.locale.languageCode).format(r.timestamp),
+                        style: TextStyle(color: color, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(width: 8),
-                      Text(isIn ? S.signIn : S.signOut,
-                          style: TextStyle(
-                              color: context.colors.textSecondary,
-                              fontSize: 12)),
+                      Text(label, style: TextStyle(color: ctx.colors.textSecondary, fontSize: 12)),
                     ],
                   ),
                 );
               }),
+              // Applied requests section
+              if (dayRequests.isNotEmpty) ...[  
+                const Divider(height: 20),
+                Text(S.requests,
+                    style: TextStyle(
+                        color: ctx.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 8),
+                ...dayRequests.map((req) {
+                  final statusColor = req.status == RequestStatus.approved
+                      ? AppTheme.accentGreen
+                      : req.status == RequestStatus.rejected
+                          ? AppTheme.checkOutRed
+                          : Colors.orange;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8, height: 8,
+                          decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            req.typeDisplayName,
+                            style: TextStyle(color: ctx.colors.textPrimary, fontSize: 13),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            req.status.name.toUpperCase(),
+                            style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
             const SizedBox(height: 8),
           ],
         ),

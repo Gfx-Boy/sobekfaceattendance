@@ -304,12 +304,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Widget _buildBottomButtons(
       BuildContext context, AttendanceProvider provider) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (provider.currentStep == AttendanceStep.failed)
           ElevatedButton.icon(
             icon: const Icon(Icons.refresh),
             label: Text(S.tryAgain),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryBlue,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+            ),
             onPressed: () {
               provider.reset();
               Navigator.pushReplacementNamed(context, '/camera');
@@ -317,6 +323,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ),
         const SizedBox(height: 12),
         OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+            side: const BorderSide(color: AppTheme.primaryBlue),
+            foregroundColor: AppTheme.primaryBlue,
+          ),
           onPressed: () {
             provider.reset();
             Navigator.pushNamedAndRemoveUntil(
@@ -360,7 +371,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return S.errorNoFace;
     }
     if (lower.contains('location')) {
-      return raw;
+      return raw.replaceAll(RegExp(r'\s*\(max\s*\d+m\)'), '');
     }
     if (lower.contains('outside') || lower.contains('geofence') || lower.contains('radius')) {
       return S.errorGeofence;

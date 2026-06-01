@@ -186,6 +186,7 @@ class ApiService {
         final uri = Uri.parse('$baseUrl/attendance/mark');
 
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(_headers)
           ..fields['employee_id'] = employeeId
           ..fields['latitude'] = latitude.toString()
           ..fields['longitude'] = longitude.toString()
@@ -669,6 +670,7 @@ class ApiService {
       _call(() async {
         final uri = Uri.parse('$baseUrl/employees/register');
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(_headers)
           ..fields['name'] = name
           ..fields['email'] = email
           ..fields['department'] = department
@@ -790,6 +792,8 @@ class ApiService {
     required String employeeName,
     required String evaluatorId,
     required String evaluatorName,
+    String evaluatorRole = '',
+    String branchId = '',
     required String period,
     required Map<String, dynamic> scores,
     required String comments,
@@ -804,6 +808,8 @@ class ApiService {
                   'employee_name': employeeName,
                   'evaluator_id': evaluatorId,
                   'evaluator_name': evaluatorName,
+                  'evaluator_role': evaluatorRole,
+                  'branch_id': branchId,
                   'period': period,
                   'scores': scores,
                   'comments': comments,

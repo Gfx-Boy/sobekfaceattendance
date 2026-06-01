@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
@@ -95,7 +96,26 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   }
 
   Future<void> _captureReferenceImage() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (!status.isGranted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Camera permission is required to capture face image.'),
+          backgroundColor: AppTheme.checkOutRed,
+        ),
+      );
+      return;
+    }
+
     final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('No camera available on this device.'), backgroundColor: AppTheme.checkOutRed),
+      );
+      return;
+    }
     final frontCamera = cameras.firstWhere(
       (c) => c.lensDirection == CameraLensDirection.front,
       orElse: () => cameras.first,

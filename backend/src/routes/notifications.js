@@ -34,6 +34,14 @@ let firebaseInitialized = false;
       serviceAccount = JSON.parse(inlineJson);
     }
 
+    // Final fallback: bundled key shipped with the backend source
+    if (!serviceAccount) {
+      const bundledPath = path.resolve(__dirname, '../config/firebase-adminsdk.json');
+      if (fs.existsSync(bundledPath)) {
+        serviceAccount = JSON.parse(fs.readFileSync(bundledPath, 'utf8'));
+      }
+    }
+
     if (serviceAccount) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
       firebaseInitialized = true;

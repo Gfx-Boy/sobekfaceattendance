@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
 import '../providers/auth_provider.dart';
@@ -20,6 +21,20 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0; // Will be set to Home in build
   bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestPermissions());
+  }
+
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.camera,
+      Permission.location,
+      Permission.notification,
+    ].request();
+  }
 
   List<Widget> _getScreens(UserRole role) {
     if (role == UserRole.superAdmin) {

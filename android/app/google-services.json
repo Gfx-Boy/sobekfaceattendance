@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "475929918314",
-    "project_id": "faceattendance-63b87",
-    "storage_bucket": "faceattendance-63b87.firebasestorage.app"
+    "project_number": "295282597359",
+    "project_id": "sobek-11773",
+    "storage_bucket": "sobek-11773.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:475929918314:android:8f2665ff199b47ff19c313",
+        "mobilesdk_app_id": "1:295282597359:android:ce0869a3406a50a917aa1a",
         "android_client_info": {
           "package_name": "com.attendance.face_attendance"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDomLTkMc5jIPLJ1inybENcU4o5Jar8fn4"
+          "current_key": "AIzaSyCHqtlS1i_lG0WY2QVzkNWA0j7Jtbk7EOQ"
         }
       ],
       "services": {

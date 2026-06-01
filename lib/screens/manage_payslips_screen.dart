@@ -95,6 +95,17 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _payslips = all;
       _allPayslips = all;
+      _empItems = _employeesMap.values.map((emp) {
+        final count = all.where((p) => p.employeeId == emp.id).length;
+        return <String, dynamic>{
+          'id': emp.id,
+          'name': emp.name,
+          'count': count,
+          'image': emp.profileImageUrl ?? '',
+        };
+      }).toList();
+      _empItems.sort((a, b) =>
+          (a['name'] as String).compareTo(b['name'] as String));
     } catch (e) {
       debugPrint('Load branch payslips error: $e');
     }
@@ -186,7 +197,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         _selectedEmployee = null;
         _payslips = [];
       });
-    } else if (_level == _PayslipLevel.employees) {
+    } else if (_level == _PayslipLevel.employees && _isSA) {
       setState(() {
         _level = _PayslipLevel.titles;
         _selectedTitleRole = null;
@@ -208,8 +219,8 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   bool get _canGoBack {
-    if (!_isSA) return false;
-    return _level != _PayslipLevel.branches;
+    if (_isSA) return _level != _PayslipLevel.branches;
+    return _level == _PayslipLevel.payslips;
   }
 
   @override
@@ -254,7 +265,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       case _PayslipLevel.titles:
         return _buildTitlesList();
       case _PayslipLevel.employees:
-        return _isSA ? _buildEmployeesList() : _buildPayslipsList();
+        return _buildEmployeesList();
       case _PayslipLevel.payslips:
         return _buildPayslipsList();
     }
@@ -344,7 +355,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       return _buildEmpty(S.noEmployeesInBranch, Icons.people_outline);
     }
     return RefreshIndicator(
-      onRefresh: _loadSuperAdminData,
+      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchPayslips,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
         itemCount: _empItems.length,
@@ -386,7 +397,14 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                   Icon(Icons.chevron_right, color: context.colors.textMuted),
               onTap: () {
                 _selectedEmployee = _employeesMap[emp['id'] as String];
-                _buildPayslipsForEmployee();
+                if (_isSA) {
+                  _buildPayslipsForEmployee();
+                } else {
+                  _payslips = _allPayslips
+                      .where((p) => p.employeeId == (emp['id'] as String))
+                      .toList()
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                }
                 setState(() => _level = _PayslipLevel.payslips);
               },
             ),
@@ -528,6 +546,30 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                   color: AppTheme.accentGreen),
               if (p.paymentDate != null && p.paymentDate!.isNotEmpty)
                 row(S.paymentDate, p.paymentDate!),
+              if (p.breakdown != null) ...[  
+                const Divider(height: 18),
+                Text(S.breakdown,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 4),
+                row(S.presentDays,
+                    '${p.breakdown!['present_days'] ?? 0}',
+                    color: AppTheme.accentGreen),
+                row(S.absentDays,
+                    '${p.breakdown!['absent_days'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.lateCount,
+                    '${p.breakdown!['late_count'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.earlyOutCount,
+                    '${p.breakdown!['early_out_count'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.overtimeMinutes,
+                    '${p.breakdown!['overtime_minutes'] ?? 0}',
+                    color: AppTheme.primaryBlue),
+              ],
               if (p.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(S.notesOptional,

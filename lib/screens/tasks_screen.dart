@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../config/app_theme.dart';
@@ -10,6 +11,9 @@ import '../models/task.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
+import '../models/branch.dart';
+
+enum _SATaskLevel { branches, titles, employees, months }
 
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
@@ -27,6 +31,20 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   int _lastTabIndex = 0;
 
+  // Super Admin drill-down: branches → titles → employees → months → tasks
+  _SATaskLevel _saLevel = _SATaskLevel.branches;
+  List<Branch> _saBranches = [];
+  Branch? _selectedSABranch;
+  List<String> _saTitles = [];
+  String? _selectedSATitle;
+  List<Employee> _saAllBranchEmps = [];
+  List<Employee> _saFilteredEmps = [];
+  Employee? _selectedSAEmployee;
+  List<Task> _saTasks = [];
+  bool _saLoading = false;
+  // All loaded SA employee tasks (for month drill-down)
+  List<Task> _saAllEmployeeTasks = [];
+
   @override
   void initState() {
     super.initState();
@@ -42,7 +60,77 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
         _loadTasks();
       }
     });
-    _loadTasks();
+    if (isSA) {
+      _loadSABranches();
+    } else {
+      _loadTasks();
+    }
+  }
+
+  Future<void> _loadSABranches() async {
+    setState(() => _saLoading = true);
+    try {
+      _saBranches = await ApiService().getBranches();
+    } catch (_) { _saBranches = []; }
+    if (mounted) setState(() { _saLoading = false; _loading = false; });
+  }
+
+  Future<void> _selectSABranch(Branch b) async {
+    setState(() { _selectedSABranch = b; _saLoading = true; });
+    try {
+      _saAllBranchEmps = await ApiService().getAllEmployees(branchId: b.id);
+      final positions = <String>{};
+      for (final e in _saAllBranchEmps) {
+        positions.add(e.position?.isNotEmpty == true ? e.position! : e.role.name);
+      }
+      _saTitles = positions.toList();
+    } catch (_) { _saTitles = []; }
+    if (mounted) setState(() { _saLoading = false; _saLevel = _SATaskLevel.titles; });
+  }
+
+  void _selectSATitle(String title) {
+    _selectedSATitle = title;
+    _saFilteredEmps = _saAllBranchEmps
+        .where((e) => (e.position?.isNotEmpty == true ? e.position! : e.role.name) == title)
+        .toList();
+    setState(() => _saLevel = _SATaskLevel.employees);
+  }
+
+  Future<void> _selectSAEmployee(Employee emp) async {
+    setState(() { _selectedSAEmployee = emp; _loading = true; _saLevel = _SATaskLevel.months; });
+    try {
+      _saAllEmployeeTasks = await ApiService().getTasks(emp.id);
+    } catch (_) { _saAllEmployeeTasks = []; }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _selectSAMonth(int year, int month) {
+    _saTasks = _saAllEmployeeTasks.where((t) =>
+        t.dueDate.year == year && t.dueDate.month == month).toList();
+    setState(() {
+      _selectedMonth = DateTime(year, month);
+    });
+  }
+
+  void _goBackSA() {
+    setState(() {
+      if (_saTasks.isNotEmpty) {
+        // Back from task detail view → months list
+        _saTasks = [];
+        _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+      } else if (_selectedSAEmployee != null) {
+        // Back from months list → employees
+        _selectedSAEmployee = null;
+        _saAllEmployeeTasks = [];
+        _saLevel = _SATaskLevel.employees;
+      } else if (_saLevel == _SATaskLevel.employees) {
+        _saLevel = _SATaskLevel.titles;
+        _selectedSATitle = null;
+      } else if (_saLevel == _SATaskLevel.titles) {
+        _saLevel = _SATaskLevel.branches;
+        _selectedSABranch = null;
+      }
+    });
   }
 
   @override
@@ -104,17 +192,19 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
         Future<void> pick() async {
-          final picker = ImagePicker();
-          final picked =
-              await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-          if (picked == null) return;
+          final result = await FilePicker.platform.pickFiles(
+            allowMultiple: false,
+            type: FileType.any,
+          );
+          final filePath = result?.files.single.path;
+          if (filePath == null) return;
           setS(() {
-            attachment = File(picked.path);
+            attachment = File(filePath);
             attachmentUrl = null;
             uploading = true;
           });
           try {
-            final res = await ApiService().uploadTaskAttachment(File(picked.path));
+            final res = await ApiService().uploadTaskAttachment(File(filePath));
             setS(() {
               attachmentUrl = res['url'] as String?;
               uploading = false;
@@ -253,6 +343,18 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   /// Opens a camera scanner and returns the first detected barcode/QR value.
   Future<String?> _scanCode() async {
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Camera permission required to scan codes.'),
+            backgroundColor: AppTheme.checkOutRed,
+          ),
+        );
+      }
+      return null;
+    }
     return await Navigator.of(context).push<String?>(
       MaterialPageRoute(builder: (_) => const _ScannerScreen()),
     );
@@ -264,6 +366,62 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     final isSA = employee?.role == UserRole.superAdmin;
     final isManager = employee?.role != UserRole.employee;
     final showAssignedTab = isManager && !isSA;
+
+    // Super Admin: hierarchical drill-down
+    if (isSA) {
+      final showingTasks = _saTasks.isNotEmpty;
+      final showingMonths = _selectedSAEmployee != null && _saTasks.isEmpty;
+      final showBack = _saTasks.isNotEmpty || _selectedSAEmployee != null || _saLevel != _SATaskLevel.branches;
+      String title = S.tasks;
+      if (showingTasks) {
+        title = '${_selectedSAEmployee!.name} — ${S.months[_selectedMonth.month - 1]}';
+      } else if (_selectedSAEmployee != null) {
+        title = _selectedSAEmployee!.name;
+      } else if (_saLevel == _SATaskLevel.employees) {
+        title = _selectedSATitle ?? S.tasks;
+      } else if (_saLevel == _SATaskLevel.titles) {
+        title = _selectedSABranch?.name ?? S.tasks;
+      }
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(title),
+          leading: showBack
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _goBackSA,
+                )
+              : null,
+          actions: [
+            if (showingTasks)
+              IconButton(
+                icon: Icon(_calendarView ? Icons.view_list : Icons.calendar_month),
+                onPressed: () => setState(() => _calendarView = !_calendarView),
+              ),
+          ],
+        ),
+        floatingActionButton: showingTasks
+            ? FloatingActionButton(
+                onPressed: () => Navigator.pushNamed(context, '/create-task')
+                    .then((_) => _selectSAEmployee(_selectedSAEmployee!)),
+                backgroundColor: AppTheme.primaryBlue,
+                child: const Icon(Icons.add_task, color: Colors.white),
+              )
+            : null,
+        body: _saLoading
+            ? const Center(child: CircularProgressIndicator())
+            : showingTasks
+                ? (_loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : (_calendarView
+                        ? _buildSACalendarBody()
+                        : _buildTaskList(_saTasks, showActions: false)))
+                : showingMonths
+                    ? (_loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _buildSAMonthsList())
+                    : _buildSAHierarchyBody(),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -279,7 +437,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
           controller: _tabController,
           indicatorColor: AppTheme.primaryBlue,
           tabs: [
-            Tab(text: isSA ? S.tasks : S.myTasks),
+            Tab(text: S.myTasks),
             if (showAssignedTab) Tab(text: S.assignedTasks),
           ],
         ),
@@ -300,11 +458,175 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
               child: TabBarView(
                 controller: _tabController,
                 children: [
-                  _buildTaskList(_myTasks, showActions: !isSA),
+                  _buildTaskList(_myTasks, showActions: true),
                   if (showAssignedTab) _buildTaskList(_assignedTasks, showActions: false),
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildSAHierarchyBody() {
+    switch (_saLevel) {
+      case _SATaskLevel.branches:
+        return _buildSABranchesList();
+      case _SATaskLevel.titles:
+        return _buildSATitlesList();
+      case _SATaskLevel.employees:
+        return _buildSAEmployeesList();
+      case _SATaskLevel.months:
+        return _buildSAMonthsList();
+    }
+  }
+
+  Widget _buildSAMonthsList() {
+    // Group tasks by year-month
+    final Map<String, int> monthCounts = {};
+    for (final t in _saAllEmployeeTasks) {
+      final key = '${t.dueDate.year}-${t.dueDate.month.toString().padLeft(2, '0')}';
+      monthCounts[key] = (monthCounts[key] ?? 0) + 1;
+    }
+    if (monthCounts.isEmpty) {
+      return Center(child: Text(S.noTasks, style: TextStyle(color: context.colors.textSecondary)));
+    }
+    final sorted = monthCounts.keys.toList()..sort((a, b) => b.compareTo(a));
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: sorted.length,
+      itemBuilder: (_, i) {
+        final parts = sorted[i].split('-');
+        final year = int.parse(parts[0]);
+        final month = int.parse(parts[1]);
+        final count = monthCounts[sorted[i]]!;
+        return Card(
+          color: context.colors.cardBg,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.calendar_month, color: AppTheme.primaryBlue, size: 22),
+            ),
+            title: Text(
+              '${S.months[month - 1]} $year',
+              style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              '$count ${count == 1 ? "task" : "tasks"}',
+              style: TextStyle(color: context.colors.textSecondary, fontSize: 12),
+            ),
+            trailing: Icon(Icons.chevron_right, color: context.colors.textMuted),
+            onTap: () {
+              _selectSAMonth(year, month);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSABranchesList() {
+    if (_saBranches.isEmpty) {
+      return Center(child: Text(S.noBranchesYet, style: TextStyle(color: context.colors.textSecondary)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _saBranches.length,
+      itemBuilder: (_, i) {
+        final b = _saBranches[i];
+        return Card(
+          color: context.colors.cardBg,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.business, color: AppTheme.primaryBlue, size: 22),
+            ),
+            title: Text(b.name, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
+            subtitle: Text(b.address, style: TextStyle(color: context.colors.textSecondary, fontSize: 12)),
+            trailing: Icon(Icons.chevron_right, color: context.colors.textMuted),
+            onTap: () => _selectSABranch(b),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSATitlesList() {
+    if (_saTitles.isEmpty) {
+      return Center(child: Text(S.noEmployees, style: TextStyle(color: context.colors.textSecondary)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _saTitles.length,
+      itemBuilder: (_, i) {
+        final title = _saTitles[i];
+        return Card(
+          color: context.colors.cardBg,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.badge_outlined, color: Color(0xFF6C63FF), size: 22),
+            ),
+            title: Text(title, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
+            trailing: Icon(Icons.chevron_right, color: context.colors.textMuted),
+            onTap: () => _selectSATitle(title),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSAEmployeesList() {
+    if (_saFilteredEmps.isEmpty) {
+      return Center(child: Text(S.noEmployees, style: TextStyle(color: context.colors.textSecondary)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _saFilteredEmps.length,
+      itemBuilder: (_, i) {
+        final e = _saFilteredEmps[i];
+        return Card(
+          color: context.colors.cardBg,
+          margin: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+            leading: CircleAvatar(
+              backgroundColor: AppTheme.primaryBlue.withValues(alpha: 0.2),
+              child: Text(e.name.isNotEmpty ? e.name[0].toUpperCase() : '?',
+                  style: const TextStyle(color: AppTheme.primaryBlue)),
+            ),
+            title: Text(e.name, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
+            subtitle: Text(e.email, style: TextStyle(color: context.colors.textSecondary, fontSize: 12)),
+            trailing: Icon(Icons.chevron_right, color: context.colors.textMuted),
+            onTap: () => _selectSAEmployee(e),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSACalendarBody() {
+    return Column(
+      children: [
+        _buildMonthSelector(),
+        _buildDayHeaders(),
+        Expanded(child: _buildCalendarGrid(_saTasks)),
+        const SizedBox(height: 8),
+        _buildCalendarLegend(),
+        const SizedBox(height: 8),
+      ],
     );
   }
 

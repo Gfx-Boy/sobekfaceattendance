@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
@@ -86,16 +86,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _pickAttachment() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked == null) return;
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.any,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null) return;
     setState(() {
-      _attachment = File(picked.path);
+      _attachment = File(path);
       _attachmentUrl = null;
       _uploadingAttachment = true;
     });
     try {
-      final res = await ApiService().uploadTaskAttachment(File(picked.path));
+      final res = await ApiService().uploadTaskAttachment(File(path));
       if (mounted) {
         setState(() {
           _attachmentUrl = res['url'] as String?;

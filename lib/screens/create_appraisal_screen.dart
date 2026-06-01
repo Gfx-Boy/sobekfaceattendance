@@ -82,11 +82,19 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
     setState(() => _loading = true);
     try {
       final me = context.read<AuthProvider>().employee;
+      Employee? target;
+      for (final e in _employees) {
+        if (e.id == _selectedEmployeeId) { target = e; break; }
+      }
       await ApiService().createAppraisal(
         employeeId: _selectedEmployeeId!,
         employeeName: _selectedEmployeeName ?? '',
         evaluatorId: me?.id ?? '',
         evaluatorName: me?.name ?? '',
+        // #23/#37 — backend uses evaluator_role to block HR appraising a
+        // Branch Admin; #18 — branch_id resolves the active appraisal cycle.
+        evaluatorRole: me?.role.name ?? '',
+        branchId: me?.branchId ?? target?.branchId ?? '',
         period: _periodController.text.trim(),
         scores: {
           'quality': _qualityScore,

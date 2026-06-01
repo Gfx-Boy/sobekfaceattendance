@@ -91,6 +91,20 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _appraisals = all;
       _allAppraisals = all;
+      _empItems = _employeesMap.values
+          .where((emp) => emp.role != UserRole.superAdmin)
+          .map((emp) {
+        final count = all.where((a) => a.employeeId == emp.id).length;
+        return <String, dynamic>{
+          'id': emp.id,
+          'name': emp.name,
+          'count': count,
+          'image': emp.profileImageUrl ?? '',
+          'role': emp.role.name,
+        };
+      }).toList();
+      _empItems.sort((a, b) =>
+          (a['name'] as String).compareTo(b['name'] as String));
     } catch (e) {
       debugPrint('Load branch appraisals error: $e');
     }
@@ -180,7 +194,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         _selectedEmployee = null;
         _appraisals = [];
       });
-    } else if (_level == _AppraisalLevel.employees) {
+    } else if (_level == _AppraisalLevel.employees && _isSA) {
       setState(() {
         _level = _AppraisalLevel.titles;
         _selectedTitleRole = null;
@@ -202,8 +216,8 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   bool get _canGoBack {
-    if (!_isSA) return false;
-    return _level != _AppraisalLevel.branches;
+    if (_isSA) return _level != _AppraisalLevel.branches;
+    return _level == _AppraisalLevel.appraisals;
   }
 
   @override
@@ -273,7 +287,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       case _AppraisalLevel.titles:
         return _buildTitlesList();
       case _AppraisalLevel.employees:
-        return _isSA ? _buildEmployeesList() : _buildAppraisalsList();
+        return _buildEmployeesList();
       case _AppraisalLevel.appraisals:
         return _buildAppraisalsList();
     }
@@ -363,7 +377,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       return _buildEmpty(S.noEmployeesInBranch, Icons.people_outline);
     }
     return RefreshIndicator(
-      onRefresh: _loadSuperAdminData,
+      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchAppraisals,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: _empItems.length,
@@ -405,7 +419,14 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
                   Icon(Icons.chevron_right, color: context.colors.textMuted),
               onTap: () {
                 _selectedEmployee = _employeesMap[emp['id'] as String];
-                _buildAppraisalsForEmployee();
+                if (_isSA) {
+                  _buildAppraisalsForEmployee();
+                } else {
+                  _appraisals = _allAppraisals
+                      .where((a) => a.employeeId == (emp['id'] as String))
+                      .toList()
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                }
                 setState(() => _level = _AppraisalLevel.appraisals);
               },
             ),
@@ -580,15 +601,185 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   void _showCreateAppraisalDialog() {
-    showDialog(
+    final emp = _selectedEmployee;
+    if (emp == null) return;
+    final me = context.read<AuthProvider>().employee;
+    final now = DateTime.now();
+    DateTime selectedMonth = DateTime(now.year, now.month);
+    final scores = <String, double>{
+      'quality_of_work': 50,
+      'productivity': 50,
+      'attendance': 50,
+      'teamwork': 50,
+      'initiative': 50,
+    };
+    final commentsCtrl = TextEditingController();
+    bool busy = false;
+
+    showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(S.newEvaluation),
-        content: const Text('Create appraisal dialog'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(S.cancel)),
-        ],
-      ),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        final period =
+            '${selectedMonth.year}-${selectedMonth.month.toString().padLeft(2, '0')}';
+        final overall =
+            scores.values.reduce((a, b) => a + b) / scores.length;
+
+        Future<void> submit() async {
+          setS(() => busy = true);
+          try {
+            await ApiService().createAppraisal(
+              employeeId: emp.id,
+              employeeName: emp.name,
+              evaluatorId: me?.id ?? '',
+              evaluatorName: me?.name ?? '',
+              evaluatorRole: me?.role.name ?? '',
+              branchId: me?.branchId ?? emp.branchId ?? '',
+              period: period,
+              scores: scores.map((k, v) => MapEntry(k, v)),
+              comments: commentsCtrl.text.trim(),
+              overallScore: overall,
+            );
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(S.evaluationSubmitted)));
+              _isSA ? _loadSuperAdminData() : _loadBranchAppraisals();
+            }
+          } catch (e) {
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  content: Text('$e'),
+                  backgroundColor: AppTheme.checkOutRed));
+            }
+          } finally {
+            setS(() => busy = false);
+          }
+        }
+
+        Widget scoreRow(String key, String label) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            color: ctx.colors.textSecondary, fontSize: 13)),
+                    Text('${scores[key]!.round()}',
+                        style: const TextStyle(
+                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                Slider(
+                  value: scores[key]!,
+                  min: 0,
+                  max: 100,
+                  divisions: 20,
+                  activeColor: AppTheme.primaryBlue,
+                  onChanged:
+                      busy ? null : (v) => setS(() => scores[key] = v),
+                ),
+              ],
+            );
+
+        return AlertDialog(
+          backgroundColor: ctx.colors.cardBg,
+          title: Text(S.newEvaluation),
+          content: SizedBox(
+            width: 360,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(emp.name,
+                      style: TextStyle(
+                          color: ctx.colors.textPrimary,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_month, size: 18),
+                    label: Text(period),
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: selectedMonth,
+                              firstDate: DateTime(now.year - 3),
+                              lastDate: DateTime(now.year + 1, 12),
+                            );
+                            if (picked != null) {
+                              setS(() => selectedMonth =
+                                  DateTime(picked.year, picked.month));
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  scoreRow('quality_of_work', S.qualityOfWork),
+                  scoreRow('productivity', S.productivity),
+                  scoreRow('attendance', S.attendanceLabel),
+                  scoreRow('teamwork', S.teamwork),
+                  scoreRow('initiative', S.initiative),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(S.overallScore,
+                          style: TextStyle(
+                              color: ctx.colors.textPrimary,
+                              fontWeight: FontWeight.w600)),
+                      Text(
+                        '${overall.round()}%',
+                        style: TextStyle(
+                            color: overall >= 70
+                                ? AppTheme.accentGreen
+                                : AppTheme.checkOutRed,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentsCtrl,
+                    maxLines: 3,
+                    style: TextStyle(color: ctx.colors.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: S.comments,
+                      filled: true,
+                      fillColor: ctx.colors.cardBgLighter,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: ctx.colors.surfaceBorder)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: busy ? null : () => Navigator.pop(ctx),
+                child: Text(S.cancel)),
+            ElevatedButton(
+              onPressed: busy ? null : submit,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue),
+              child: busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : Text(S.submitEvaluation,
+                      style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      }),
     );
   }
 }

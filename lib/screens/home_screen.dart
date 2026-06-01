@@ -214,6 +214,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: const Color(0xFF4ECDC4),
                       onTap: () => Navigator.pushNamed(context, '/manage-payslips'),
                     ),
+                    _QuickAction(
+                      icon: Icons.event_note,
+                      label: S.setDayStatusTitle,
+                      color: const Color(0xFF9B59B6),
+                      onTap: () => Navigator.pushNamed(context, '/set-day-status'),
+                    ),
                     if (role == UserRole.superAdmin) ...[
                       _QuickAction(
                         icon: Icons.settings,
@@ -360,6 +366,18 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: S.payslips,
                       color: const Color(0xFF4ECDC4),
                       onTap: () => Navigator.pushNamed(context, '/manage-payslips'),
+                    ),
+                    _QuickAction(
+                      icon: Icons.calendar_month,
+                      label: S.attendanceHistory,
+                      color: AppTheme.primaryBlue,
+                      onTap: () => Navigator.pushNamed(context, '/history'),
+                    ),
+                    _QuickAction(
+                      icon: Icons.event_note,
+                      label: S.setDayStatusTitle,
+                      color: const Color(0xFF9B59B6),
+                      onTap: () => Navigator.pushNamed(context, '/set-day-status'),
                     ),
                   ],
                 ),
