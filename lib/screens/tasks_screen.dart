@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:barcode_widget/barcode_widget.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
 import '../models/task.dart';
@@ -250,46 +251,33 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
               ),
               const SizedBox(height: 12),
               if (isWarehouse && newStatus == 'done') ...[
-                Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: countController,
-                      keyboardType: TextInputType.number,
-                      style: TextStyle(color: context.colors.textPrimary),
-                      decoration: InputDecoration(
-                        labelText: S.countedTotal,
-                        hintText: task.itemCode != null
-                            ? '${S.itemCode}: ${task.itemCode}'
-                            : null,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
+                TextField(
+                  controller: countController,
+                  keyboardType: TextInputType.number,
+                  style: TextStyle(color: context.colors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: S.countedTotal,
+                    hintText: task.itemCode != null
+                        ? '${S.itemCode}: ${task.itemCode}'
+                        : null,
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: S.scanCode,
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.qr_code_scanner, size: 18),
+                    label: Text(S.scanToCount),
                     onPressed: () async {
-                      final scanned = await _scanCode();
-                      if (scanned != null) {
-                        // If the scanned code matches the task's item code, we
-                        // just confirm; otherwise we still pre-fill so the
-                        // employee can correct the value manually.
-                        if (task.itemCode != null &&
-                            scanned != task.itemCode) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            SnackBar(
-                                content: Text(S.scannedCodeMismatch),
-                                backgroundColor: AppTheme.warningAmber),
-                          );
-                        }
-                        // On successful scan we do not modify the count input
-                        // — the employee still enters the total they counted.
+                      final total = await _scanToCount(task.itemCode);
+                      if (total != null) {
+                        setS(() => countController.text = total.toString());
                       }
                     },
-                    icon: const Icon(Icons.qr_code_scanner),
                   ),
-                ]),
+                ),
                 const SizedBox(height: 12),
               ],
               OutlinedButton.icon(
@@ -341,8 +329,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     }
   }
 
-  /// Opens a camera scanner and returns the first detected barcode/QR value.
-  Future<String?> _scanCode() async {
+  /// Opens a live counting scanner. Each scan (optionally matching
+  /// [expectedCode]) increments a tally; returns the final counted total.
+  Future<int?> _scanToCount(String? expectedCode) async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       if (mounted) {
@@ -355,8 +344,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       }
       return null;
     }
-    return await Navigator.of(context).push<String?>(
-      MaterialPageRoute(builder: (_) => const _ScannerScreen()),
+    return await Navigator.of(context).push<int>(
+      MaterialPageRoute(
+          builder: (_) => _CountingScannerScreen(expectedCode: expectedCode)),
     );
   }
 
@@ -804,37 +794,87 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
             const SizedBox(height: 12),
             Text('${S.tasks} - ${S.months[_selectedMonth.month - 1]} $day', style: TextStyle(color: context.colors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-            ...tasks.map((t) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: context.colors.scaffoldBg,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: context.colors.surfaceBorder, width: 0.5),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(t.title, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
-                  if (t.description.isNotEmpty)
-                    Text(t.description, style: TextStyle(color: context.colors.textSecondary, fontSize: 12), maxLines: 2),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Expanded(
-                      child: Text(
-                        '${S.assignedBy}: ${t.assignedByName ?? t.assignedBy}',
-                        style: TextStyle(color: context.colors.textMuted, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+            // Tapping a task opens the same rich detail used by the list view.
+            ...tasks.map((t) => GestureDetector(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showTaskDetail(t);
+                  },
+                  child: Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: context.colors.scaffoldBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: context.colors.surfaceBorder, width: 0.5),
                     ),
-                    const SizedBox(width: 8),
-                    Text(t.statusDisplayName, style: TextStyle(color: _statusColor(t.status), fontSize: 11, fontWeight: FontWeight.w600)),
-                  ]),
-                  Text('${S.createdAt}: ${t.createdAt.day}/${t.createdAt.month}/${t.createdAt.year}', style: TextStyle(color: context.colors.textMuted, fontSize: 11)),
-                ],
-              ),
-            )),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(
+                            child: Text(t.title,
+                                style: TextStyle(
+                                    color: context.colors.textPrimary,
+                                    fontWeight: FontWeight.w600)),
+                          ),
+                          if (t.taskType == 'warehouse')
+                            Icon(Icons.qr_code_2,
+                                size: 16, color: context.colors.textMuted),
+                          if ((t.attachments?.isNotEmpty ?? false))
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6),
+                              child: Icon(Icons.attach_file,
+                                  size: 14, color: context.colors.textMuted),
+                            ),
+                        ]),
+                        if (t.description.isNotEmpty)
+                          Text(t.description,
+                              style: TextStyle(
+                                  color: context.colors.textSecondary,
+                                  fontSize: 12),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          Expanded(
+                            child: Text(
+                              '${S.assignedBy}: ${t.assignedByName ?? t.assignedBy}',
+                              style: TextStyle(
+                                  color: context.colors.textMuted,
+                                  fontSize: 11),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(t.statusDisplayName,
+                              style: TextStyle(
+                                  color: _statusColor(t.status),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600)),
+                        ]),
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          Text(
+                              '${S.dueDate}: ${t.dueDate.day}/${t.dueDate.month}/${t.dueDate.year}',
+                              style: TextStyle(
+                                  color: context.colors.textMuted,
+                                  fontSize: 11)),
+                          const Spacer(),
+                          Text(S.viewDetails,
+                              style: TextStyle(
+                                  color: AppTheme.primaryBlue,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600)),
+                          Icon(Icons.chevron_right,
+                              size: 14, color: AppTheme.primaryBlue),
+                        ]),
+                      ],
+                    ),
+                  ),
+                )),
           ],
         ),
           ),
@@ -1028,29 +1068,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                         fontWeight: FontWeight.w600,
                         fontSize: 13)),
                 const SizedBox(height: 6),
-                Center(
-                  child: GestureDetector(
-                    onTap: () => showDialog(
-                      context: context,
-                      builder: (_) => Dialog(
-                        backgroundColor: Colors.white,
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: QrImageView(
-                              data: task.itemCode!, size: 260),
-                        ),
-                      ),
-                    ),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: QrImageView(data: task.itemCode!, size: 140),
-                    ),
-                  ),
-                ),
+                _buildItemCodeView(task),
                 const SizedBox(height: 6),
                 Center(
                   child: SelectableText(
@@ -1099,37 +1117,146 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     );
   }
 
+  /// Renders the warehouse item code as a QR, a barcode, or both, per
+  /// the task's `codeType`.
+  Widget _buildItemCodeView(Task task) {
+    final code = task.itemCode!;
+    final type = task.codeType;
+    final showQr = type == 'qr' || type == 'both';
+    final showBarcode = type == 'barcode' || type == 'both';
+
+    Widget qr = GestureDetector(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: QrImageView(data: code, size: 260),
+          ),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: QrImageView(data: code, size: 140),
+      ),
+    );
+
+    Widget barcode = Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: BarcodeWidget(
+        barcode: Barcode.code128(),
+        data: code,
+        width: 220,
+        height: 80,
+        drawText: false,
+      ),
+    );
+
+    return Center(
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 12,
+        alignment: WrapAlignment.center,
+        children: [
+          if (showQr) qr,
+          if (showBarcode) barcode,
+        ],
+      ),
+    );
+  }
+
+  static const _imageExts = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'};
+
+  String _extOf(String url) {
+    final clean = url.split('?').first;
+    final dot = clean.lastIndexOf('.');
+    if (dot < 0) return '';
+    return clean.substring(dot + 1).toLowerCase();
+  }
+
+  IconData _iconForExt(String ext) {
+    switch (ext) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return Icons.table_chart;
+      case 'ppt':
+      case 'pptx':
+        return Icons.slideshow;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
   Widget _attachmentThumbs(List<String> urls) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: urls.map((u) {
-        return GestureDetector(
-          onTap: () => showDialog(
-            context: context,
-            builder: (_) => Dialog(
-              backgroundColor: Colors.black,
-              child: InteractiveViewer(child: Image.network(u)),
-            ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.network(
-              u,
-              width: 80,
-              height: 80,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
-                width: 80,
-                height: 80,
-                color: context.colors.cardBgLighter,
-                child: Icon(Icons.insert_drive_file,
-                    color: context.colors.textMuted),
+        final ext = _extOf(u);
+        final isImage = _imageExts.contains(ext);
+        if (isImage) {
+          return GestureDetector(
+            onTap: () => showDialog(
+              context: context,
+              builder: (_) => Dialog(
+                backgroundColor: Colors.black,
+                child: InteractiveViewer(child: Image.network(u)),
               ),
             ),
-          ),
-        );
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                u,
+                width: 80,
+                height: 80,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _fileTile(ext),
+              ),
+            ),
+          );
+        }
+        // Non-image (pdf / word / excel / etc.): show a labelled file tile.
+        return _fileTile(ext);
       }).toList(),
+    );
+  }
+
+  Widget _fileTile(String ext) {
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        color: context.colors.cardBgLighter,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.colors.surfaceBorder, width: 0.5),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(_iconForExt(ext), color: AppTheme.primaryBlue, size: 30),
+          const SizedBox(height: 4),
+          Text(ext.isEmpty ? S.attachments : ext.toUpperCase(),
+              style: TextStyle(
+                  color: context.colors.textSecondary,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 
@@ -1163,17 +1290,25 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 }
 
-/// Fullscreen camera view that reads a single QR / barcode and returns it.
-class _ScannerScreen extends StatefulWidget {
-  const _ScannerScreen();
+/// Fullscreen camera view that tallies scanned items. Each detected code
+/// increments the counter (debounced so one physical scan counts once). When
+/// [expectedCode] is given, only matching codes are counted. Returns the final
+/// total when the user confirms.
+class _CountingScannerScreen extends StatefulWidget {
+  const _CountingScannerScreen({this.expectedCode});
+
+  final String? expectedCode;
 
   @override
-  State<_ScannerScreen> createState() => _ScannerScreenState();
+  State<_CountingScannerScreen> createState() => _CountingScannerScreenState();
 }
 
-class _ScannerScreenState extends State<_ScannerScreen> {
+class _CountingScannerScreenState extends State<_CountingScannerScreen> {
   final MobileScannerController _controller = MobileScannerController();
-  bool _handled = false;
+  int _count = 0;
+  String? _lastValue;
+  DateTime? _lastAt;
+  String? _toast;
 
   @override
   void dispose() {
@@ -1181,23 +1316,116 @@ class _ScannerScreenState extends State<_ScannerScreen> {
     super.dispose();
   }
 
+  void _onDetect(BarcodeCapture capture) {
+    for (final b in capture.barcodes) {
+      final v = b.rawValue;
+      if (v == null || v.isEmpty) continue;
+
+      // Debounce: ignore the same value seen again within 1.5s so holding an
+      // item in frame doesn't inflate the count.
+      final now = DateTime.now();
+      if (_lastValue == v &&
+          _lastAt != null &&
+          now.difference(_lastAt!) < const Duration(milliseconds: 1500)) {
+        return;
+      }
+      _lastValue = v;
+      _lastAt = now;
+
+      if (widget.expectedCode != null && v != widget.expectedCode) {
+        setState(() => _toast = S.scannedCodeMismatch);
+        return;
+      }
+      setState(() {
+        _count += 1;
+        _toast = null;
+      });
+      return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(S.scanCode)),
-      body: MobileScanner(
-        controller: _controller,
-        onDetect: (capture) {
-          if (_handled) return;
-          for (final b in capture.barcodes) {
-            final v = b.rawValue;
-            if (v != null && v.isNotEmpty) {
-              _handled = true;
-              Navigator.pop(context, v);
-              break;
-            }
-          }
-        },
+      appBar: AppBar(
+        title: Text(S.scanToCount),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(controller: _controller, onDetect: _onDetect),
+          // Live count overlay.
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 24, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    S.countedItems(_count),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _toast ?? S.tapToCountHint,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: _toast != null
+                          ? AppTheme.warningAmber
+                          : Colors.white70,
+                      fontSize: 13,
+                      backgroundColor: Colors.black45),
+                ),
+              ],
+            ),
+          ),
+          // Bottom controls.
+          Positioned(
+            bottom: 24 + MediaQuery.of(context).viewPadding.bottom,
+            left: 16,
+            right: 16,
+            child: Row(
+              children: [
+                IconButton.filled(
+                  onPressed: _count > 0
+                      ? () => setState(() => _count -= 1)
+                      : null,
+                  icon: const Icon(Icons.remove),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: () => setState(() => _count += 1),
+                  icon: const Icon(Icons.add),
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.accentGreen),
+                  onPressed: () => Navigator.pop(context, _count),
+                  icon: const Icon(Icons.check, color: Colors.white),
+                  label: Text(S.useCount,
+                      style: const TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

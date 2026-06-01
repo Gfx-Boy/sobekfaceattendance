@@ -436,6 +436,20 @@ class S {
   static String get scannedCodeMismatch =>
       _t("Scanned code doesn't match the item code",
           'الكود الممسوح لا يطابق كود الصنف');
+  static String get codeType => _t('Code Type', 'نوع الكود');
+  static String get qrCode => _t('QR Code', 'كود QR');
+  static String get barcode => _t('Barcode', 'الباركود');
+  static String get bothCodes => _t('Both', 'كلاهما');
+  static String get scanToCount =>
+      _t('Scan to Count', 'مسح للعد');
+  static String get tapToCountHint =>
+      _t('Scan each item; the counter increases automatically',
+          'امسح كل صنف؛ يزيد العداد تلقائياً');
+  static String countedItems(int n) =>
+      _t('$n items counted', 'تم عد $n صنف');
+  static String get useCount => _t('Use Count', 'استخدام العدد');
+  static String get openAttachment => _t('Open', 'فتح');
+  static String get viewDetails => _t('View Details', 'عرض التفاصيل');
 
   // ── Day status / search ──
   static String get setDayStatusTitle =>

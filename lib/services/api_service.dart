@@ -442,6 +442,7 @@ class ApiService {
     List<String>? attachments,
     String? taskType,
     String? itemCode,
+    String? codeType,
   }) =>
       _call(() async {
         final response = await _client
@@ -458,6 +459,7 @@ class ApiService {
                   if (attachments != null) 'attachments': attachments,
                   if (taskType != null) 'task_type': taskType,
                   if (itemCode != null) 'item_code': itemCode,
+                  if (codeType != null) 'code_type': codeType,
                 }))
             .timeout(AppConfig.apiTimeout);
         if (response.statusCode == 200 || response.statusCode == 201) {

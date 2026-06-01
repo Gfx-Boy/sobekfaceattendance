@@ -62,7 +62,7 @@ router.post('/', async (req, res) => {
   try {
     const {
       title, description, assigned_to, assigned_by, due_date, attachments,
-      task_type, item_code,
+      task_type, item_code, code_type,
     } = req.body;
 
     if (!title || !assigned_to || !assigned_by || !due_date) {
@@ -97,6 +97,7 @@ router.post('/', async (req, res) => {
       attachments: attachments || [],
       task_type: task_type || 'general',
       item_code: item_code || null,
+      code_type: code_type || 'qr',
       counted_total: null,
     };
 
