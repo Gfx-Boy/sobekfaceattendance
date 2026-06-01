@@ -141,8 +141,10 @@ router.post('/', async (req, res) => {
       } catch (_) { /* noop */ }
     }
 
-    // #18 — An appraisal must belong to an active cycle for the branch.
-    // If cycle_id provided, verify it's still active; otherwise resolve by branch.
+    // If a cycle is referenced it must be active; if it has expired, reject so
+    // the evaluator knows. When no cycle is given we attach the branch's active
+    // cycle if one exists, but do NOT block the evaluation when there isn't one
+    // (#17 — HR/Admin must be able to evaluate even before a cycle is started).
     let resolvedCycleId = cycle_id || null;
     if (cycle_id) {
       const c = await getJSON(cycleKey(cycle_id));
@@ -151,12 +153,7 @@ router.post('/', async (req, res) => {
       }
     } else {
       const active = await findActiveCycle(branch_id);
-      if (!active) {
-        return res.status(400).json({
-          error: 'No active appraisal cycle for this branch. Ask the branch admin to start one.',
-        });
-      }
-      resolvedCycleId = active.id;
+      resolvedCycleId = active ? active.id : null;
     }
 
     const id = uuidv4();

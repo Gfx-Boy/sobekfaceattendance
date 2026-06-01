@@ -38,6 +38,8 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
 
   bool get _isSA =>
       context.read<AuthProvider>().employee?.role == UserRole.superAdmin;
+  bool get _isEmployee =>
+      context.read<AuthProvider>().employee?.role == UserRole.employee;
 
   @override
   void initState() {
@@ -49,10 +51,28 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     final role = context.read<AuthProvider>().employee?.role;
     if (role == UserRole.superAdmin) {
       await _loadSuperAdminData();
+    } else if (role == UserRole.employee) {
+      // #16 — a regular employee only views their own appraisal results.
+      setState(() => _level = _AppraisalLevel.appraisals);
+      await _loadMyAppraisals();
     } else {
       setState(() => _level = _AppraisalLevel.employees);
       await _loadBranchAppraisals();
     }
+  }
+
+  Future<void> _loadMyAppraisals() async {
+    setState(() => _loading = true);
+    try {
+      final me = context.read<AuthProvider>().employee;
+      if (me != null) {
+        _appraisals = await ApiService().getAppraisals(me.id);
+        _appraisals.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      }
+    } catch (e) {
+      debugPrint('Load my appraisals error: $e');
+    }
+    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _loadSuperAdminData() async {
@@ -216,6 +236,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   bool get _canGoBack {
+    if (_isEmployee) return false; // appraisals list is their root
     if (_isSA) return _level != _AppraisalLevel.branches;
     return _level == _AppraisalLevel.appraisals;
   }
@@ -447,7 +468,9 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         itemCount: _appraisals.length,
         itemBuilder: (context, i) {
           final a = _appraisals[i];
-          return Container(
+          return GestureDetector(
+            onTap: () => _showAppraisalDetail(a),
+            child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -517,8 +540,118 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
                 ],
               ],
             ),
+          ),
           );
         },
+      ),
+    );
+  }
+
+  /// Shows the full appraisal result: per-category scores, overall and the
+  /// evaluator's comments (#16, #18).
+  Future<void> _showAppraisalDetail(Appraisal a) async {
+    String prettyKey(String k) => k
+        .split(RegExp(r'[_\s]'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''))
+        .join(' ');
+
+    Widget scoreRow(String label, num value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          color: context.colors.textSecondary, fontSize: 13)),
+                  Text('${value.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (value / 100).clamp(0, 1).toDouble(),
+                  minHeight: 6,
+                  backgroundColor: context.colors.surfaceBorder,
+                  color: value >= 70
+                      ? AppTheme.accentGreen
+                      : (value >= 50
+                          ? AppTheme.warningAmber
+                          : AppTheme.checkOutRed),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text('${S.appraisals} · ${a.period}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(S.overallScore,
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontWeight: FontWeight.w700)),
+                  Text('${a.overallScore.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                          color: a.overallScore >= 70
+                              ? AppTheme.accentGreen
+                              : AppTheme.checkOutRed,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18)),
+                ],
+              ),
+              const Divider(height: 20),
+              if (a.scores.isEmpty)
+                Text(S.noEvaluations,
+                    style: TextStyle(color: context.colors.textSecondary))
+              else
+                ...a.scores.entries.map((e) {
+                  final v = e.value;
+                  final num n = v is num ? v : (num.tryParse('$v') ?? 0);
+                  return scoreRow(prettyKey(e.key), n);
+                }),
+              if (a.evaluatorName.isNotEmpty) ...[
+                const Divider(height: 20),
+                Text('${S.evaluator}: ${a.evaluatorName}',
+                    style: TextStyle(
+                        color: context.colors.textMuted, fontSize: 12)),
+              ],
+              if (a.comments.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(S.comments,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(a.comments,
+                    style: TextStyle(
+                        color: context.colors.textSecondary, fontSize: 13)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+        ],
       ),
     );
   }

@@ -496,6 +496,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       onTap: () => Navigator.pushNamed(context, '/payslips'),
                     ),
                     _QuickAction(
+                      icon: Icons.star_outline,
+                      label: S.appraisals,
+                      color: const Color(0xFFFF6B6B),
+                      onTap: () => Navigator.pushNamed(context, '/appraisals'),
+                    ),
+                    _QuickAction(
                       icon: Icons.notifications_outlined,
                       label: S.notifications,
                       color: AppTheme.checkOutPink,
