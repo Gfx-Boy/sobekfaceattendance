@@ -18,6 +18,7 @@ class ManageRequestsScreen extends StatefulWidget {
 class _ManageRequestsScreenState extends State<ManageRequestsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<AppRequest> _requests = [];
+  final Map<String, UserRole> _roleById = {};
   bool _loading = true;
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -47,15 +48,48 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
           ? employee?.branchId
           : null;
       _requests = await ApiService().getAllRequests(branchId: branchId);
+      // Build a creator-role map so we can apply the #19 visibility cycle.
+      _roleById.clear();
+      try {
+        final emps = await ApiService().getAllEmployees(branchId: branchId);
+        for (final e in emps) {
+          _roleById[e.id] = e.role;
+        }
+      } catch (_) {}
       if (mounted) setState(() => _loading = false);
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  /// Applies the request-visibility cycle (#14, #19):
+  ///  - never show the viewer's own request (they track it in My Requests);
+  ///  - HR sees only employee requests in the branch;
+  ///  - Branch Admin sees employee + HR requests in the branch (not own);
+  ///  - Super Admin sees everything (incl. branch-admin requests).
+  List<AppRequest> get _visibleRequests {
+    final me = context.read<AuthProvider>().employee;
+    if (me == null) return _requests;
+    return _requests.where((r) {
+      if (r.employeeId == me.id) return false; // #14
+      final creator = _roleById[r.employeeId] ?? UserRole.employee;
+      switch (me.role) {
+        case UserRole.superAdmin:
+          return true;
+        case UserRole.branchAdmin:
+          return creator == UserRole.employee || creator == UserRole.hr;
+        case UserRole.hr:
+          return creator == UserRole.employee;
+        case UserRole.employee:
+          return false;
+      }
+    }).toList();
+  }
+
   List<AppRequest> _filterByStatus(String status) {
+    final visible = _visibleRequests;
     Iterable<AppRequest> base =
-        status == 'all' ? _requests : _requests.where((r) => r.status.name == status);
+        status == 'all' ? visible : visible.where((r) => r.status.name == status);
     if (_searchQuery.isNotEmpty) {
       base = base.where((r) {
         return r.title.toLowerCase().contains(_searchQuery) ||
@@ -69,11 +103,15 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
 
   Future<void> _reviewRequest(AppRequest request, String status) async {
     final employee = context.read<AuthProvider>().employee;
+    // #15 — let the reviewer attach an optional comment when approving/rejecting.
+    final comment = await _askReviewComment(status);
+    if (comment == null) return; // cancelled
     try {
       await ApiService().reviewRequest(
         request.id,
         status,
         reviewedBy: employee?.name ?? 'Admin',
+        comment: comment.isEmpty ? null : comment,
       );
       _loadRequests();
       if (mounted) {
@@ -88,6 +126,43 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
         );
       }
     }
+  }
+
+  /// Prompts for an optional review comment. Returns the entered text (may be
+  /// empty) on confirm, or null if the reviewer cancelled.
+  Future<String?> _askReviewComment(String status) async {
+    final controller = TextEditingController();
+    final isApprove = status == 'approved';
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(isApprove ? S.approve : S.reject),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          autofocus: true,
+          style: TextStyle(color: context.colors.textPrimary),
+          decoration: InputDecoration(
+            hintText: S.notesOptional,
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(S.cancel)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    isApprove ? AppTheme.accentGreen : AppTheme.checkOutRed),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(isApprove ? S.approve : S.reject,
+                style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

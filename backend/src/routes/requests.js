@@ -156,7 +156,10 @@ router.patch('/:id/review', async (req, res) => {
     await putJSON(requestKey(req.params.id), request);
 
     // #32 — Password-change request approval unlocks self-reset.
-    if (status === 'approved' && request.type === 'password_change' && request.employee_id) {
+    // Accept both the snake_case and camelCase type spellings (#19).
+    const isPasswordChange =
+      request.type === 'password_change' || request.type === 'passwordChange';
+    if (status === 'approved' && isPasswordChange && request.employee_id) {
       try {
         const emp = await getJSON(`data/employees/employee-${request.employee_id}.json`);
         if (emp) {
