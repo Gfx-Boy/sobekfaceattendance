@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
+import '../models/employee.dart';
 import '../models/notification_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -61,6 +62,54 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       await ApiService().markNotificationRead(employee.id, notif.id);
       _loadNotifications();
     } catch (_) {}
+  }
+
+  /// Marks read, then opens the relevant page (#8) or, for informational
+  /// notifications, shows the full detail (#22).
+  Future<void> _handleTap(AppNotification notif) async {
+    await _markRead(notif);
+    if (!mounted) return;
+    final role = context.read<AuthProvider>().employee?.role;
+    switch (notif.type) {
+      case NotificationType.taskAssignment:
+        Navigator.pushNamed(context, '/tasks');
+        break;
+      case NotificationType.requestApproval:
+      case NotificationType.requestRejection:
+        Navigator.pushNamed(context, '/my-requests');
+        break;
+      case NotificationType.payslipAvailable:
+        Navigator.pushNamed(
+            context, role == UserRole.employee ? '/payslips' : '/manage-payslips');
+        break;
+      case NotificationType.evaluationResult:
+        Navigator.pushNamed(context, '/appraisals');
+        break;
+      case NotificationType.hrNotification:
+      case NotificationType.systemAlert:
+      case NotificationType.attendanceAlert:
+      case NotificationType.general:
+        _showNotifDetail(notif);
+        break;
+    }
+  }
+
+  void _showNotifDetail(AppNotification notif) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(notif.title),
+        content: SingleChildScrollView(
+          child: Text(notif.body,
+              style: TextStyle(color: context.colors.textSecondary)),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+        ],
+      ),
+    );
   }
 
   IconData _iconForType(NotificationType type) {
@@ -185,7 +234,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final ago = _timeAgo(notif.createdAt);
 
     return GestureDetector(
-      onTap: () => _markRead(notif),
+      onTap: () => _handleTap(notif),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(14),
