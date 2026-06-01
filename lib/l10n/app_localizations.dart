@@ -452,6 +452,7 @@ class S {
   static String get viewDetails => _t('View Details', 'عرض التفاصيل');
   static String get permissionWindow =>
       _t('Permission Window', 'فترة الإذن');
+  static String get adminSet => _t('Set by admin', 'تم التعيين بواسطة المسؤول');
   static String permissionHoursLabel(String h) =>
       _t('$h hours', '$h ساعات');
 
