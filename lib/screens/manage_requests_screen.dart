@@ -300,6 +300,7 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
               _detailRow(Icons.date_range, S.from, DateFormat('MMM d, y', S.locale.languageCode).format(request.startDate!)),
             if (request.endDate != null)
               _detailRow(Icons.date_range, S.end, DateFormat('MMM d, y', S.locale.languageCode).format(request.endDate!)),
+            ..._buildExtraFields(request),
             SizedBox(height: 12),
             Text(S.description, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
             SizedBox(height: 6),
@@ -316,6 +317,52 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
         ),
       ),
     );
+  }
+
+  /// Renders the request's type-specific extra fields. Permission requests
+  /// get an explicit time window (e.g. 14:30 – 16:30) instead of just a bare
+  /// "2 hours" (#13).
+  List<Widget> _buildExtraFields(AppRequest request) {
+    final extra = request.extraFields;
+    if (extra.isEmpty) return const [];
+    final rows = <Widget>[];
+
+    // Permission: show the actual window From–To plus the duration.
+    final permTime = extra['permission_time'] as String?;
+    final permHours = extra['permission_hours']?.toString();
+    if (permTime != null && permTime.isNotEmpty) {
+      String windowText = permTime;
+      final hrs = int.tryParse(permHours ?? '');
+      final parts = permTime.split(':');
+      if (hrs != null && parts.length == 2) {
+        final sh = int.tryParse(parts[0]);
+        final sm = int.tryParse(parts[1]);
+        if (sh != null && sm != null) {
+          final endH = (sh + hrs) % 24;
+          windowText =
+              '$permTime – ${endH.toString().padLeft(2, '0')}:${sm.toString().padLeft(2, '0')}';
+        }
+      }
+      if (permHours != null && permHours.isNotEmpty) {
+        windowText += '  (${S.permissionHoursLabel(permHours)})';
+      }
+      rows.add(_detailRow(Icons.schedule, S.permissionWindow, windowText));
+    }
+
+    // Any other extra fields: show with a prettified label.
+    const skip = {'permission_time', 'permission_hours'};
+    extra.forEach((key, value) {
+      if (skip.contains(key)) return;
+      if (value == null || value.toString().trim().isEmpty) return;
+      rows.add(_detailRow(Icons.info_outline, _prettyKey(key), value.toString()));
+    });
+    return rows;
+  }
+
+  String _prettyKey(String key) {
+    final words = key.split('_').where((w) => w.isNotEmpty).map((w) =>
+        w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''));
+    return words.join(' ');
   }
 
   Widget _detailRow(IconData icon, String label, String value) {

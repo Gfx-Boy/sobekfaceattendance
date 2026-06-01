@@ -185,8 +185,11 @@ class ApiService {
       _call(() async {
         final uri = Uri.parse('$baseUrl/attendance/mark');
 
+        // NOTE: must NOT send Content-Type: application/json on a multipart
+        // request — http sets multipart/form-data with the boundary itself.
+        // Overriding it makes the server fail to parse the image/fields (#6).
         final request = http.MultipartRequest('POST', uri)
-          ..headers.addAll(_headers)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['employee_id'] = employeeId
           ..fields['latitude'] = latitude.toString()
           ..fields['longitude'] = longitude.toString()
@@ -314,7 +317,7 @@ class ApiService {
           'description': description,
           'start_date': startDate,
           'end_date': endDate,
-          if (extraFields != null) ...extraFields,
+          if (extraFields != null) 'extra_fields': extraFields,
         };
 
         final response = await _client
@@ -672,7 +675,7 @@ class ApiService {
       _call(() async {
         final uri = Uri.parse('$baseUrl/employees/register');
         final request = http.MultipartRequest('POST', uri)
-          ..headers.addAll(_headers)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['name'] = name
           ..fields['email'] = email
           ..fields['department'] = department

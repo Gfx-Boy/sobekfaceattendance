@@ -65,6 +65,13 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
     super.dispose();
   }
 
+  /// Formats a picked calendar day as a timezone-free `YYYY-MM-DD` string.
+  String? _dateOnly(DateTime? d) => d == null
+      ? null
+      : '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+
   Future<void> _pickDate(bool isStart) async {
     final picked = await showDatePicker(
       context: context,
@@ -195,8 +202,10 @@ class _CreateRequestScreenState extends State<CreateRequestScreen> {
         type: _type,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
-        startDate: _startDate?.toIso8601String(),
-        endDate: _endDate?.toIso8601String(),
+        // Send date-only strings (no time/zone) so the chosen calendar day
+        // never shifts when parsed/displayed in another timezone (#11).
+        startDate: _dateOnly(_startDate),
+        endDate: _dateOnly(_endDate),
         extraFields: extra.isNotEmpty ? extra : null,
       );
       if (mounted) {

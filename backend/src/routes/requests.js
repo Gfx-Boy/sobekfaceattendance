@@ -26,6 +26,7 @@ router.post('/', async (req, res) => {
       description,
       start_date,
       end_date,
+      extra_fields,
     } = req.body;
 
     if (!employee_id || !category || !type || !title || !description) {
@@ -47,6 +48,7 @@ router.post('/', async (req, res) => {
       created_at: new Date().toISOString(),
       start_date: start_date || null,
       end_date: end_date || null,
+      extra_fields: extra_fields || {},
       comment: null,
       reviewed_by: null,
       reviewed_at: null,

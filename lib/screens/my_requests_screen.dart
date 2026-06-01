@@ -145,52 +145,201 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
       _ => AppTheme.warningAmber,
     };
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-          color: context.colors.cardBg,
-          borderRadius: BorderRadius.circular(12)),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(req.title,
-                    style: TextStyle(
-                        color: context.colors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14)),
-                const SizedBox(height: 2),
-                Text(
-                    '${req.category.name.toUpperCase()} · ${req.typeDisplayName}',
-                    style: TextStyle(
-                        color: context.colors.textSecondary, fontSize: 12)),
-                const SizedBox(height: 2),
-                Text(
-                    '${S.createdAt}: ${DateFormat('MMM d, y · HH:mm', S.locale.languageCode).format(req.createdAt)}',
-                    style: TextStyle(
-                        color: context.colors.textMuted, fontSize: 11)),
-                if (req.startDate != null)
-                  Text('${S.from}: ${DateFormat('MMM d', S.locale.languageCode).format(req.startDate!)}',
+    return GestureDetector(
+      onTap: () => _showDetail(req),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+            color: context.colors.cardBg,
+            borderRadius: BorderRadius.circular(12)),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(req.title,
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14)),
+                  const SizedBox(height: 2),
+                  Text(
+                      '${req.category.name.toUpperCase()} · ${req.typeDisplayName}',
+                      style: TextStyle(
+                          color: context.colors.textSecondary, fontSize: 12)),
+                  const SizedBox(height: 2),
+                  Text(
+                      '${S.createdAt}: ${DateFormat('MMM d, y · HH:mm', S.locale.languageCode).format(req.createdAt)}',
                       style: TextStyle(
                           color: context.colors.textMuted, fontSize: 11)),
+                  if (req.startDate != null)
+                    Text('${S.from}: ${DateFormat('MMM d', S.locale.languageCode).format(req.startDate!)}',
+                        style: TextStyle(
+                            color: context.colors.textMuted, fontSize: 11)),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8)),
+                  child: Text(req.status.name.toUpperCase(),
+                      style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11)),
+                ),
+                const SizedBox(height: 6),
+                Icon(Icons.chevron_right,
+                    size: 18, color: context.colors.textMuted),
               ],
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8)),
-            child: Text(req.status.name.toUpperCase(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDetail(AppRequest req) {
+    final statusColor = switch (req.status) {
+      RequestStatus.approved => AppTheme.accentGreen,
+      RequestStatus.rejected => AppTheme.checkOutRed,
+      RequestStatus.forwarded => AppTheme.primaryBlue,
+      _ => AppTheme.warningAmber,
+    };
+
+    Widget row(IconData icon, String label, String value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(icon, size: 16, color: context.colors.textMuted),
+            const SizedBox(width: 8),
+            Text('$label: ',
                 style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11)),
-          ),
-        ],
+                    color: context.colors.textMuted, fontSize: 13)),
+            Expanded(
+                child: Text(value,
+                    style: TextStyle(
+                        color: context.colors.textPrimary, fontSize: 13))),
+          ]),
+        );
+
+    final extraRows = <Widget>[];
+    final extra = req.extraFields;
+    final permTime = extra['permission_time'] as String?;
+    final permHours = extra['permission_hours']?.toString();
+    if (permTime != null && permTime.isNotEmpty) {
+      String windowText = permTime;
+      final hrs = int.tryParse(permHours ?? '');
+      final parts = permTime.split(':');
+      if (hrs != null && parts.length == 2) {
+        final sh = int.tryParse(parts[0]);
+        final sm = int.tryParse(parts[1]);
+        if (sh != null && sm != null) {
+          final endH = (sh + hrs) % 24;
+          windowText =
+              '$permTime – ${endH.toString().padLeft(2, '0')}:${sm.toString().padLeft(2, '0')}';
+        }
+      }
+      if (permHours != null && permHours.isNotEmpty) {
+        windowText += '  (${S.permissionHoursLabel(permHours)})';
+      }
+      extraRows.add(row(Icons.schedule, S.permissionWindow, windowText));
+    }
+    extra.forEach((key, value) {
+      if (key == 'permission_time' || key == 'permission_hours') return;
+      if (value == null || value.toString().trim().isEmpty) return;
+      final label = key
+          .split('_')
+          .where((w) => w.isNotEmpty)
+          .map((w) => w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''))
+          .join(' ');
+      extraRows.add(row(Icons.info_outline, label, value.toString()));
+    });
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.colors.cardBg,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        maxChildSize: 0.9,
+        minChildSize: 0.3,
+        builder: (_, controller) => SingleChildScrollView(
+          controller: controller,
+          padding: const EdgeInsets.all(20),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(
+                child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: context.colors.surfaceBorder,
+                        borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                  child: Text(req.title,
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold))),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text(req.status.name.toUpperCase(),
+                    style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12)),
+              ),
+            ]),
+            const SizedBox(height: 16),
+            row(Icons.category_outlined, S.requestType,
+                '${req.typeDisplayName} (${req.category.name.toUpperCase()})'),
+            row(Icons.calendar_today, S.createdAt,
+                DateFormat('MMM d, y · HH:mm', S.locale.languageCode)
+                    .format(req.createdAt)),
+            if (req.startDate != null)
+              row(Icons.date_range, S.from,
+                  DateFormat('MMM d, y', S.locale.languageCode)
+                      .format(req.startDate!)),
+            if (req.endDate != null)
+              row(Icons.date_range, S.end,
+                  DateFormat('MMM d, y', S.locale.languageCode)
+                      .format(req.endDate!)),
+            ...extraRows,
+            const SizedBox(height: 12),
+            Text(S.description,
+                style: TextStyle(
+                    color: context.colors.textPrimary,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
+            Text(req.description,
+                style: TextStyle(
+                    color: context.colors.textSecondary, fontSize: 14)),
+            if (req.comment != null && req.comment!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              row(Icons.comment_outlined, S.comment, req.comment!),
+            ],
+            if (req.reviewedBy != null && req.reviewedBy!.isNotEmpty)
+              row(Icons.rate_review_outlined, S.reviewedBy, req.reviewedBy!),
+            const SizedBox(height: 12),
+          ]),
+        ),
       ),
     );
   }

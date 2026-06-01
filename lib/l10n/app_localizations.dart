@@ -450,6 +450,10 @@ class S {
   static String get useCount => _t('Use Count', 'استخدام العدد');
   static String get openAttachment => _t('Open', 'فتح');
   static String get viewDetails => _t('View Details', 'عرض التفاصيل');
+  static String get permissionWindow =>
+      _t('Permission Window', 'فترة الإذن');
+  static String permissionHoursLabel(String h) =>
+      _t('$h hours', '$h ساعات');
 
   // ── Day status / search ──
   static String get setDayStatusTitle =>

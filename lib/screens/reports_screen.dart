@@ -89,8 +89,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     try {
       final employees = await ApiService().getAllEmployees(branchId: branchId);
       final myId = context.read<AuthProvider>().employee?.id;
+      // #12 — the attendance monitor excludes super admins and branch admins
+      // (managers aren't monitored here), as well as the viewer themselves.
       _allBranchEmployees = employees
-          .where((e) => e.role != UserRole.superAdmin && e.id != myId)
+          .where((e) =>
+              e.role != UserRole.superAdmin &&
+              e.role != UserRole.branchAdmin &&
+              e.id != myId)
           .map((e) => <String, dynamic>{
                 'id': e.id,
                 'name': e.name,
