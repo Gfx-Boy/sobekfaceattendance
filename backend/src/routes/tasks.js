@@ -151,6 +151,38 @@ router.get('/employee/:employeeId', async (req, res) => {
   }
 });
 
+// GET /api/tasks/branch-assigned/:branchId — every task assigned to an
+// employee of this branch, regardless of which manager created it. Lets a
+// Branch Admin and HR both see tasks assigned within their branch (#9/#28).
+router.get('/branch-assigned/:branchId', async (req, res) => {
+  try {
+    const branchId = req.params.branchId;
+    const tasks = await listJSON('data/tasks/');
+    // Cache employee → branch lookups to avoid repeated fetches.
+    const branchOf = {};
+    const resolveBranch = async (empId) => {
+      if (!empId) return null;
+      if (branchOf[empId] !== undefined) return branchOf[empId];
+      const emp = await getJSON(employeeKey(empId));
+      branchOf[empId] = emp ? (emp.branch_id || null) : null;
+      return branchOf[empId];
+    };
+    const out = [];
+    for (const t of tasks) {
+      // Include if either the assignee or the assigner belongs to the branch.
+      const toBranch = await resolveBranch(t.assigned_to);
+      const byBranch = await resolveBranch(t.assigned_by);
+      if (toBranch === branchId || byBranch === branchId) out.push(t);
+    }
+    out.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    await enrichWithNames(out);
+    res.json(out);
+  } catch (error) {
+    console.error('List branch-assigned tasks error:', error);
+    res.status(500).json({ error: 'Failed to list branch tasks' });
+  }
+});
+
 // GET /api/tasks/assigned-by/:employeeId — tasks created by this user
 router.get('/assigned-by/:employeeId', async (req, res) => {
   try {

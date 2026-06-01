@@ -434,6 +434,23 @@ class ApiService {
         throw ApiException('Failed to load tasks (${response.statusCode})');
       });
 
+  /// All tasks assigned within a branch, regardless of which manager created
+  /// them (#9/#28) — used for the manager "Assigned" tab.
+  Future<List<Task>> getBranchAssignedTasks(String branchId) =>
+      _call(() async {
+        final response = await _client
+            .get(Uri.parse('$baseUrl/tasks/branch-assigned/$branchId'),
+                headers: _headers)
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+          return data
+              .map((item) => Task.fromJson(item as Map<String, dynamic>))
+              .toList();
+        }
+        throw ApiException('Failed to load tasks (${response.statusCode})');
+      });
+
   Future<Task> createTask({
     required String title,
     required String description,

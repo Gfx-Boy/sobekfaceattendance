@@ -533,6 +533,10 @@ router.get('/', async (req, res) => {
             allowed_radius: emp.allowed_radius,
             is_on_hold: emp.is_on_hold || false,
             basic_salary: emp.basic_salary || 0,
+            // #40 — include images so list screens show real avatars instead
+            // of always falling back to the initial-letter placeholder.
+            profile_image_url: emp.profile_image_url,
+            reference_image_url: emp.reference_image_url,
           });
         }
       }

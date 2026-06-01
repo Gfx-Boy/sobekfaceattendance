@@ -123,8 +123,11 @@ router.post('/generate', async (req, res) => {
       }
       if (!isWorkDay) { holidayCount++; continue; }
 
-      const checkIn = recs.find(r => r.type === 'check_in');
-      const checkOut = recs.find(r => r.type === 'check_out');
+      // Attendance is recorded as sign_in/sign_out (also accept the legacy
+      // check_in/check_out spelling) — otherwise every day reads as absent.
+      const checkIn = recs.find(r => r.type === 'sign_in' || r.type === 'check_in');
+      const checkOut = [...recs].reverse()
+          .find(r => r.type === 'sign_out' || r.type === 'check_out');
       if (!checkIn) { absentCount++; continue; }
       presentCount++;
 

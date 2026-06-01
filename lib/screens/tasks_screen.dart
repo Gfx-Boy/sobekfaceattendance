@@ -153,7 +153,13 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       } else {
         _myTasks = await api.getTasks(employee.id);
         if (employee.role != UserRole.employee) {
-          _assignedTasks = await api.getAssignedTasks(employee.id);
+          // #9/#28 — branch managers (HR + Branch Admin) see all tasks
+          // assigned within their branch, not only the ones they created.
+          if (employee.branchId != null && employee.branchId!.isNotEmpty) {
+            _assignedTasks = await api.getBranchAssignedTasks(employee.branchId!);
+          } else {
+            _assignedTasks = await api.getAssignedTasks(employee.id);
+          }
         }
       }
       if (mounted) setState(() => _loading = false);
