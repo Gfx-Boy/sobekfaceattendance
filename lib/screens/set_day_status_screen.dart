@@ -842,6 +842,31 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
     }
   }
 
+  /// Inserts or replaces the local day_status record for [date] so the
+  /// calendar reflects the change without waiting on a (possibly stale)
+  /// server refetch (#25).
+  void _applyDayStatusLocally(String date, String status) {
+    if (_selected == null) return;
+    final record = AttendanceRecord(
+      id: 'day-status-$date',
+      employeeId: _selected!.id,
+      employeeName: _selected!.name,
+      type: 'day_status',
+      timestamp: DateTime.now(),
+      latitude: 0,
+      longitude: 0,
+      status: AttendanceStatus.success,
+      livenessVerified: false,
+      dayStatus: status,
+      date: date,
+    );
+    if (!mounted) return;
+    setState(() {
+      _records.removeWhere((r) => r.type == 'day_status' && r.date == date);
+      _records.add(record);
+    });
+  }
+
   Future<void> _pickStatus(String date) async {
     final statuses = ['attend', 'vacation', 'absent', 'holiday'];
     final selected = await showDialog<String>(
@@ -863,7 +888,13 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
         date: date,
         status: selected,
       );
+      // Optimistically reflect the new status immediately. A refetch via the
+      // history list can momentarily miss the just-written record (S3 list
+      // read-after-write lag), which made the day appear blank (#25).
+      _applyDayStatusLocally(date, selected);
       await _loadRecords(_selected!.id);
+      // The refetch may still be stale; re-apply so the day never disappears.
+      _applyDayStatusLocally(date, selected);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${S.dayStatus}: ${_short(selected)}')),

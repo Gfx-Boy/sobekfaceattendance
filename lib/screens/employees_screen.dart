@@ -60,8 +60,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     try {
       setState(() { _loading = true; _error = null; });
       final branches = await ApiService().getBranches();
-      // Compute employee counts directly from the employees list
-      // (more reliable than the backend-stored count)
+      // Compute employee counts directly from the employees list and reconcile
+      // with the backend-stored count. Either source can be momentarily empty
+      // (a failed/slow employees fetch, or stale S3 listing), so take the max
+      // per branch instead of letting a zero clobber a real count (#41).
       Map<String, int> counts = {};
       try {
         final allEmps = await ApiService().getAllEmployees();
@@ -71,6 +73,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           }
         }
       } catch (_) {}
+      for (final b in branches) {
+        final local = counts[b.id] ?? 0;
+        if (b.employeeCount > local) counts[b.id] = b.employeeCount;
+      }
       if (mounted) setState(() {
         _branches = branches;
         _branchEmployeeCounts = counts;

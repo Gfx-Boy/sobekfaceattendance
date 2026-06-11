@@ -253,7 +253,96 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         child: const Icon(Icons.add, color: Colors.white),
       );
     }
+    // Super Admin reaches employees only through *existing* payslips, so a
+    // branch with none was a dead-end (#7). Offer a create entry once a branch
+    // is selected so the first payslip for any employee can be made.
+    if (_isSA &&
+        _selectedBranch != null &&
+        (_level == _PayslipLevel.periods ||
+            _level == _PayslipLevel.titles ||
+            _level == _PayslipLevel.employees)) {
+      return FloatingActionButton.extended(
+        onPressed: _pickEmployeeAndCreate,
+        backgroundColor: AppTheme.primaryBlue,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text(S.createPayslip,
+            style: const TextStyle(color: Colors.white)),
+      );
+    }
     return null;
+  }
+
+  /// Lets a Super Admin pick any employee in the selected branch and create a
+  /// payslip, independent of whether that employee already has payslips (#7).
+  Future<void> _pickEmployeeAndCreate() async {
+    final branchId = _selectedBranch?.id;
+    if (branchId == null) return;
+    final employees = _employeesMap.values
+        .where((e) => e.branchId == branchId)
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    if (employees.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.noEmployeesInBranch)));
+      return;
+    }
+    final picked = await showModalBottomSheet<Employee>(
+      context: context,
+      backgroundColor: context.colors.cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(S.selectEmployee,
+                  style: TextStyle(
+                      color: context.colors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600)),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: employees.length,
+                itemBuilder: (_, i) {
+                  final e = employees[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor:
+                          AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      backgroundImage: (e.profileImageUrl ?? '').isNotEmpty
+                          ? NetworkImage(e.profileImageUrl!)
+                          : null,
+                      child: (e.profileImageUrl ?? '').isEmpty
+                          ? Text(e.name.isNotEmpty ? e.name[0].toUpperCase() : '?',
+                              style: TextStyle(
+                                  color: AppTheme.primaryBlue,
+                                  fontWeight: FontWeight.w700))
+                          : null,
+                    ),
+                    title: Text(e.name,
+                        style: TextStyle(color: context.colors.textPrimary)),
+                    subtitle: Text(_roleName(e.role.name),
+                        style: TextStyle(
+                            color: context.colors.textSecondary, fontSize: 12)),
+                    onTap: () => Navigator.pop(ctx, e),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    _selectedEmployee = picked;
+    await _showCreatePayslipDialog();
   }
 
   Widget _buildBody() {

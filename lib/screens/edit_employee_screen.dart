@@ -24,6 +24,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   late TextEditingController _departmentController;
   late TextEditingController _positionController;
   late TextEditingController _phoneController;
+  late TextEditingController _addressController;
   late TextEditingController _salaryController;
   late TextEditingController _passwordController;
   late TextEditingController _latitudeController;
@@ -48,6 +49,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     _departmentController = TextEditingController(text: widget.employee.department);
     _positionController = TextEditingController(text: widget.employee.position ?? '');
     _phoneController = TextEditingController(text: widget.employee.phone ?? '');
+    _addressController = TextEditingController(text: widget.employee.address ?? '');
     _salaryController = TextEditingController(
         text: (widget.employee.basicSalary ?? 0) > 0
             ? widget.employee.basicSalary!.toStringAsFixed(0)
@@ -85,6 +87,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     _departmentController.dispose();
     _positionController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     _salaryController.dispose();
     _passwordController.dispose();
     _latitudeController.dispose();
@@ -132,6 +135,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
         'employee_type': _selectedType,
         'position': _positionController.text.trim(),
         'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
         'basic_salary':
             double.tryParse(_salaryController.text.trim()) ?? 0,
         'branch_id': _selectedBranchId,
@@ -297,6 +301,12 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                 validator: (v) => (v ?? '').trim().isEmpty ? S.phoneRequired : null,
                 style: TextStyle(color: context.colors.textPrimary),
                 decoration: InputDecoration(labelText: S.phone, prefixIcon: Icon(Icons.phone_outlined, color: context.colors.textSecondary)),
+              ),
+              SizedBox(height: 12),
+              TextFormField(
+                controller: _addressController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: InputDecoration(labelText: S.address, prefixIcon: Icon(Icons.location_on_outlined, color: context.colors.textSecondary)),
               ),
               SizedBox(height: 12),
               Builder(builder: (context) {

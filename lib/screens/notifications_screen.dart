@@ -78,6 +78,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       case NotificationType.requestRejection:
         Navigator.pushNamed(context, '/my-requests');
         break;
+      case NotificationType.newRequest:
+        Navigator.pushNamed(context, '/manage-requests');
+        break;
       case NotificationType.payslipAvailable:
         Navigator.pushNamed(
             context, role == UserRole.employee ? '/payslips' : '/manage-payslips');
@@ -118,6 +121,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.check_circle_outline;
       case NotificationType.requestRejection:
         return Icons.cancel_outlined;
+      case NotificationType.newRequest:
+        return Icons.assignment_outlined;
       case NotificationType.hrNotification:
         return Icons.badge_outlined;
       case NotificationType.systemAlert:
@@ -141,6 +146,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return AppTheme.accentGreen;
       case NotificationType.requestRejection:
         return AppTheme.checkOutRed;
+      case NotificationType.newRequest:
+        return AppTheme.primaryBlue;
       case NotificationType.hrNotification:
         return AppTheme.warningAmber;
       case NotificationType.systemAlert:
@@ -217,7 +224,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     : RefreshIndicator(
                         onRefresh: _loadNotifications,
                         child: ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: EdgeInsets.fromLTRB(
+                              12, 4, 12, 12 + MediaQuery.of(context).viewPadding.bottom),
                           itemCount: _filtered.length,
                           itemBuilder: (ctx, i) => _notificationCard(_filtered[i]),
                         ),

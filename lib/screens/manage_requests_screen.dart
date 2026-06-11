@@ -225,7 +225,8 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
       return Center(child: Text(S.noRequests, style: TextStyle(color: context.colors.textSecondary)));
     }
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(
+          12, 12, 12, 12 + MediaQuery.of(context).viewPadding.bottom),
       itemCount: requests.length,
       itemBuilder: (context, index) => _requestCard(requests[index]),
     );

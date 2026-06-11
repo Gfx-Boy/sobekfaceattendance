@@ -70,9 +70,14 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _buildCalendarGrid(),
           ),
-          // Legend
-          _buildLegend(),
-          const SizedBox(height: 12),
+          // Legend — keep clear of the device's bottom inset (#23)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _buildLegend(),
+            ),
+          ),
         ],
       ),
     );

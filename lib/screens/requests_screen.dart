@@ -94,7 +94,8 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
             // Creation-only view; "My Requests" lives on its own screen.
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                padding: EdgeInsets.fromLTRB(
+                    16, 16, 16, 24 + MediaQuery.of(context).viewPadding.bottom),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

@@ -352,8 +352,6 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         setState(() => _branches.add(created));
                       }
                     }
-                    // Background refresh after a short delay so S3 settles
-                    Future.delayed(const Duration(seconds: 2), _loadBranches);
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -362,6 +360,11 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         ),
                       );
                     }
+                    // Reload authoritative state from the server so working
+                    // days / deductions reflect what was saved (#39). The
+                    // optimistic update above already shows the new values;
+                    // this reconciles without a stale 2s background window.
+                    await _loadBranches();
                   } catch (e) {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
