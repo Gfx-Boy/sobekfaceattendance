@@ -126,6 +126,9 @@ function serializeEmployee(emp) {
     allowed_radius: emp.allowed_radius,
     is_on_hold: emp.is_on_hold || false,
     basic_salary: emp.basic_salary || 0,
+    // Carry the password-reset flag on every serialized employee (incl. login)
+    // so the app can prompt for a new password right after approval (#32).
+    password_reset_pending: emp.password_reset_pending === true,
   };
 }
 
