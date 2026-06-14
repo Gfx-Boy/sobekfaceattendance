@@ -40,13 +40,23 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   List<Map<String, dynamic>> _empItems = [];
   List<Payslip> _payslips = [];
 
+  final _searchController = TextEditingController();
+  String get _q => _searchController.text.trim().toLowerCase();
+
   bool get _isSA =>
       context.read<AuthProvider>().employee?.role == UserRole.superAdmin;
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) => _initLoad());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initLoad() async {
@@ -191,6 +201,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   void _goBack() {
+    _searchController.clear();
     if (_level == _PayslipLevel.payslips) {
       setState(() {
         _level = _PayslipLevel.employees;
@@ -234,7 +245,12 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
+          : Column(
+              children: [
+                _buildSearchBar(),
+                Expanded(child: _buildBody()),
+              ],
+            ),
       floatingActionButton: _buildFab(),
     );
   }
@@ -345,6 +361,33 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     await _showCreatePayslipDialog();
   }
 
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: TextField(
+        controller: _searchController,
+        style: TextStyle(color: context.colors.textPrimary),
+        decoration: InputDecoration(
+          hintText: S.search,
+          prefixIcon: Icon(Icons.search, color: context.colors.textMuted),
+          suffixIcon: _q.isEmpty
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.clear, color: context.colors.textMuted),
+                  onPressed: () => _searchController.clear(),
+                ),
+          filled: true,
+          fillColor: context.colors.cardBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     switch (_level) {
       case _PayslipLevel.branches:
@@ -364,19 +407,26 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_branches.isEmpty) {
       return _buildEmpty(S.noBranchesFound, Icons.business_outlined);
     }
+    final branches = _branches
+        .where((b) =>
+            _q.isEmpty ||
+            b.name.toLowerCase().contains(_q) ||
+            b.address.toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _branches.length,
+        itemCount: branches.length,
         itemBuilder: (context, i) {
-          final b = _branches[i];
+          final b = branches[i];
           return _drillCard(
             icon: Icons.business,
             title: b.name,
             subtitle: b.address.isNotEmpty ? b.address : S.branch,
             onTap: () {
               _selectedBranch = b;
+              _searchController.clear();
               _buildPeriodsForBranch();
               setState(() => _level = _PayslipLevel.periods);
             },
@@ -390,19 +440,24 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_periods.isEmpty) {
       return _buildEmpty(S.noPayslipsFound, Icons.receipt_long_outlined);
     }
+    final periods = _periods
+        .where((p) =>
+            _q.isEmpty || (p['period'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _periods.length,
+        itemCount: periods.length,
         itemBuilder: (context, i) {
-          final p = _periods[i];
+          final p = periods[i];
           return _drillCard(
             icon: Icons.calendar_month_outlined,
             title: p['period'] as String,
             subtitle: S.employeeCountLabel(p['count'] as int),
             onTap: () {
               _selectedPeriod = p['period'] as String;
+              _searchController.clear();
               _buildTitlesForPeriod();
               setState(() => _level = _PayslipLevel.titles);
             },
@@ -416,13 +471,17 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_titles.isEmpty) {
       return _buildEmpty(S.noTitlesFound, Icons.badge_outlined);
     }
+    final titles = _titles
+        .where((t) =>
+            _q.isEmpty || (t['label'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _titles.length,
+        itemCount: titles.length,
         itemBuilder: (context, i) {
-          final t = _titles[i];
+          final t = titles[i];
           final role = t['role'] as String;
           return _drillCard(
             icon: _iconForRole(role),
@@ -430,6 +489,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
             subtitle: S.employeeCountLabel(t['count'] as int),
             onTap: () {
               _selectedTitleRole = role;
+              _searchController.clear();
               _buildEmployeesForTitle();
               setState(() => _level = _PayslipLevel.employees);
             },
@@ -443,13 +503,17 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_empItems.isEmpty) {
       return _buildEmpty(S.noEmployeesInBranch, Icons.people_outline);
     }
+    final empItems = _empItems
+        .where((e) =>
+            _q.isEmpty || (e['name'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _isSA ? _loadSuperAdminData : _loadBranchPayslips,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _empItems.length,
+        itemCount: empItems.length,
         itemBuilder: (context, i) {
-          final emp = _empItems[i];
+          final emp = empItems[i];
           final imageUrl = emp['image'] as String;
           final name = emp['name'] as String;
           return Card(
@@ -486,6 +550,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                   Icon(Icons.chevron_right, color: context.colors.textMuted),
               onTap: () {
                 _selectedEmployee = _employeesMap[emp['id'] as String];
+                _searchController.clear();
                 if (_isSA) {
                   _buildPayslipsForEmployee();
                 } else {
@@ -507,12 +572,18 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_payslips.isEmpty) {
       return _buildEmpty(S.noPayslipsFound, Icons.receipt_long_outlined);
     }
+    final payslips = _payslips
+        .where((p) =>
+            _q.isEmpty ||
+            p.employeeName.toLowerCase().contains(_q) ||
+            p.period.toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _isSA ? _loadSuperAdminData : _loadBranchPayslips,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _payslips.length,
-        itemBuilder: (context, i) => _payslipCard(_payslips[i]),
+        itemCount: payslips.length,
+        itemBuilder: (context, i) => _payslipCard(payslips[i]),
       ),
     );
   }

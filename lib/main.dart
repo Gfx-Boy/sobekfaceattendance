@@ -68,6 +68,7 @@ class FaceAttendanceApp extends StatelessWidget {
           // Ensure S static locale is always in sync with provider
           S.setLocale(localeProvider.locale);
           return MaterialApp(
+        navigatorKey: NotificationService.navigatorKey,
         title: 'Sobek',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,

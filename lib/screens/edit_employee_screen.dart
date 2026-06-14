@@ -126,6 +126,19 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Location is required (#38). Only enforce when this editor is allowed to
+    // change location; otherwise they cannot fix it and must not be trapped.
+    if (_canEditLocation &&
+        (!_enableGeofence ||
+            _latitudeController.text.trim().isEmpty ||
+            _longitudeController.text.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.locationRequired), backgroundColor: AppTheme.checkOutRed),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final updates = <String, dynamic>{

@@ -48,9 +48,14 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   // All loaded SA employee tasks (for month drill-down)
   List<Task> _saAllEmployeeTasks = [];
 
+  // Search for the Super Admin drill-down lists (#39)
+  final _saSearchController = TextEditingController();
+  String get _saQ => _saSearchController.text.trim().toLowerCase();
+
   @override
   void initState() {
     super.initState();
+    _saSearchController.addListener(() => setState(() {}));
     final employee = context.read<AuthProvider>().employee;
     final isSA = employee?.role == UserRole.superAdmin;
     final isManager = employee?.role != UserRole.employee;
@@ -79,6 +84,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   Future<void> _selectSABranch(Branch b) async {
+    _saSearchController.clear();
     setState(() { _selectedSABranch = b; _saLoading = true; });
     try {
       _saAllBranchEmps = await ApiService().getAllEmployees(branchId: b.id);
@@ -92,6 +98,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   void _selectSATitle(String title) {
+    _saSearchController.clear();
     _selectedSATitle = title;
     _saFilteredEmps = _saAllBranchEmps
         .where((e) => (e.position?.isNotEmpty == true ? e.position! : e.role.name) == title)
@@ -100,6 +107,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   Future<void> _selectSAEmployee(Employee emp) async {
+    _saSearchController.clear();
     setState(() { _selectedSAEmployee = emp; _loading = true; _saLevel = _SATaskLevel.months; });
     try {
       _saAllEmployeeTasks = await ApiService().getTasks(emp.id);
@@ -116,6 +124,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   void _goBackSA() {
+    _saSearchController.clear();
     setState(() {
       if (_saTasks.isNotEmpty) {
         // Back from task detail view → months list
@@ -139,6 +148,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   @override
   void dispose() {
     _tabController.dispose();
+    _saSearchController.dispose();
     super.dispose();
   }
 
@@ -465,16 +475,56 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   Widget _buildSAHierarchyBody() {
+    Widget list;
     switch (_saLevel) {
       case _SATaskLevel.branches:
-        return _buildSABranchesList();
+        list = _buildSABranchesList();
+        break;
       case _SATaskLevel.titles:
-        return _buildSATitlesList();
+        list = _buildSATitlesList();
+        break;
       case _SATaskLevel.employees:
-        return _buildSAEmployeesList();
+        list = _buildSAEmployeesList();
+        break;
       case _SATaskLevel.months:
-        return _buildSAMonthsList();
+        list = _buildSAMonthsList();
+        break;
     }
+    // Months are not searchable; everything else is (#39).
+    if (_saLevel == _SATaskLevel.months) return list;
+    return Column(
+      children: [
+        _buildSASearchBar(),
+        Expanded(child: list),
+      ],
+    );
+  }
+
+  Widget _buildSASearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: TextField(
+        controller: _saSearchController,
+        style: TextStyle(color: context.colors.textPrimary),
+        decoration: InputDecoration(
+          hintText: S.search,
+          prefixIcon: Icon(Icons.search, color: context.colors.textMuted),
+          suffixIcon: _saQ.isEmpty
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.clear, color: context.colors.textMuted),
+                  onPressed: () => _saSearchController.clear(),
+                ),
+          filled: true,
+          fillColor: context.colors.cardBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        ),
+      ),
+    );
   }
 
   Widget _buildSAMonthsList() {
@@ -530,11 +580,17 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     if (_saBranches.isEmpty) {
       return Center(child: Text(S.noBranchesYet, style: TextStyle(color: context.colors.textSecondary)));
     }
+    final branches = _saBranches
+        .where((b) =>
+            _saQ.isEmpty ||
+            b.name.toLowerCase().contains(_saQ) ||
+            b.address.toLowerCase().contains(_saQ))
+        .toList();
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _saBranches.length,
+      itemCount: branches.length,
       itemBuilder: (_, i) {
-        final b = _saBranches[i];
+        final b = branches[i];
         return Card(
           color: context.colors.cardBg,
           margin: const EdgeInsets.only(bottom: 8),
@@ -561,11 +617,14 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     if (_saTitles.isEmpty) {
       return Center(child: Text(S.noEmployees, style: TextStyle(color: context.colors.textSecondary)));
     }
+    final titles = _saTitles
+        .where((t) => _saQ.isEmpty || t.toLowerCase().contains(_saQ))
+        .toList();
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _saTitles.length,
+      itemCount: titles.length,
       itemBuilder: (_, i) {
-        final title = _saTitles[i];
+        final title = titles[i];
         return Card(
           color: context.colors.cardBg,
           margin: const EdgeInsets.only(bottom: 8),
@@ -591,11 +650,17 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     if (_saFilteredEmps.isEmpty) {
       return Center(child: Text(S.noEmployees, style: TextStyle(color: context.colors.textSecondary)));
     }
+    final emps = _saFilteredEmps
+        .where((e) =>
+            _saQ.isEmpty ||
+            e.name.toLowerCase().contains(_saQ) ||
+            e.email.toLowerCase().contains(_saQ))
+        .toList();
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: _saFilteredEmps.length,
+      itemCount: emps.length,
       itemBuilder: (_, i) {
-        final e = _saFilteredEmps[i];
+        final e = emps[i];
         return Card(
           color: context.colors.cardBg,
           margin: const EdgeInsets.only(bottom: 8),
