@@ -1,0 +1,10 @@
+node_modules
+local-data
+*.md
+*.sh
+*.py
+*.msi
+.elasticbeanstalk
+.env
+.env.*
+!.env.example
