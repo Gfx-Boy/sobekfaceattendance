@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart' hide Barcode;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
@@ -202,7 +203,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   Future<void> _showCompletionDialog(Task task, String newStatus) async {
     final commentController = TextEditingController();
-    final countController = TextEditingController();
+    // Prefill with any tally saved via "continue counting" (#18).
+    final countController =
+        TextEditingController(text: task.countedTotal?.toString() ?? '');
     final isWarehouse = task.taskType == 'warehouse';
     File? attachment;
     String? attachmentUrl;
@@ -289,7 +292,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                     icon: const Icon(Icons.qr_code_scanner, size: 18),
                     label: Text(S.scanToCount),
                     onPressed: () async {
-                      final total = await _scanToCount(task.itemCode);
+                      final total = await _scanToCount(task.itemCode,
+                          initialCount:
+                              int.tryParse(countController.text.trim()) ?? 0);
                       if (total != null) {
                         setS(() => countController.text = total.toString());
                       }
@@ -349,7 +354,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   /// Opens a live counting scanner. Each scan (optionally matching
   /// [expectedCode]) increments a tally; returns the final counted total.
-  Future<int?> _scanToCount(String? expectedCode) async {
+  Future<int?> _scanToCount(String? expectedCode, {int initialCount = 0}) async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       if (mounted) {
@@ -364,8 +369,35 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     }
     return await Navigator.of(context).push<int>(
       MaterialPageRoute(
-          builder: (_) => _CountingScannerScreen(expectedCode: expectedCode)),
+          builder: (_) => _CountingScannerScreen(
+              expectedCode: expectedCode, initialCount: initialCount)),
     );
+  }
+
+  /// Scan starting from the task's saved tally and persist the new total
+  /// without completing the task — "save & continue counting" (#18).
+  Future<void> _continueCounting(Task task) async {
+    final total = await _scanToCount(task.itemCode,
+        initialCount: task.countedTotal ?? 0);
+    if (total == null) return;
+    try {
+      await ApiService().saveTaskCount(task.id, total);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('${S.countedTotal}: $total'),
+              backgroundColor: AppTheme.accentGreen),
+        );
+      }
+      _loadTasks();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('$e'), backgroundColor: AppTheme.checkOutRed),
+        );
+      }
+    }
   }
 
   @override
@@ -1079,6 +1111,11 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                   if (task.status == TaskStatus.toDo)
                     _statusButton(S.startTask, AppTheme.primaryBlue, () => _updateStatus(task, 'inProgress')),
                   if (task.status == TaskStatus.inProgress) ...[
+                    if (task.taskType == 'warehouse') ...[
+                      _statusButton(S.scanToCount, AppTheme.primaryBlue,
+                          () => _continueCounting(task)),
+                      const SizedBox(width: 8),
+                    ],
                     _statusButton(S.done, AppTheme.accentGreen, () => _showCompletionDialog(task, 'done')),
                     const SizedBox(width: 8),
                     _statusButton(S.failed, AppTheme.checkOutRed, () => _showCompletionDialog(task, 'failed')),
@@ -1303,10 +1340,31 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
             ),
           );
         }
-        // Non-image (pdf / word / excel / etc.): show a labelled file tile.
-        return _fileTile(ext);
+        // Non-image (pdf / word / excel / etc.): tap opens it externally —
+        // the attachment endpoint is public, so the browser/viewer can fetch
+        // it without auth headers (#17).
+        return GestureDetector(
+          onTap: () => _openAttachment(u),
+          child: _fileTile(ext),
+        );
       }).toList(),
     );
+  }
+
+  Future<void> _openAttachment(String url) async {
+    final uri = Uri.tryParse(url);
+    var ok = false;
+    try {
+      ok = uri != null &&
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(S.failedToOpenAttachment),
+            backgroundColor: AppTheme.checkOutRed),
+      );
+    }
   }
 
   Widget _fileTile(String ext) {
@@ -1368,9 +1426,12 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 /// [expectedCode] is given, only matching codes are counted. Returns the final
 /// total when the user confirms.
 class _CountingScannerScreen extends StatefulWidget {
-  const _CountingScannerScreen({this.expectedCode});
+  const _CountingScannerScreen({this.expectedCode, this.initialCount = 0});
 
   final String? expectedCode;
+
+  /// Resume counting from a previously saved tally (#18).
+  final int initialCount;
 
   @override
   State<_CountingScannerScreen> createState() => _CountingScannerScreenState();
@@ -1378,7 +1439,7 @@ class _CountingScannerScreen extends StatefulWidget {
 
 class _CountingScannerScreenState extends State<_CountingScannerScreen> {
   final MobileScannerController _controller = MobileScannerController();
-  int _count = 0;
+  late int _count = widget.initialCount;
   String? _lastValue;
   DateTime? _lastAt;
   String? _toast;

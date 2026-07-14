@@ -1,8 +1,18 @@
 /**
  * S3 Cleanup Script
  * Deletes ALL data from S3 except the Super Admin account (hasan@aenfinite.com)
+ * — employee records, branches, attendance, tasks, requests, payslips,
+ *   appraisals, notifications, settings, captured/profile/reference images, etc.
  *
- * Usage: node cleanup_s3.js
+ * SAFE BY DEFAULT: runs as a DRY RUN unless you pass --confirm.
+ *
+ * Usage:
+ *   node cleanup_s3.js                       # dry run — lists what WOULD be deleted
+ *   node cleanup_s3.js --confirm             # actually delete
+ *   node cleanup_s3.js --bucket=NAME         # override bucket (else $S3_BUCKET_NAME)
+ *
+ * Auth: AWS SSO profile 'attendance' (run `aws sso login --profile attendance` first)
+ *       or standard AWS_* env vars.
  */
 require('dotenv').config();
 const {
@@ -14,12 +24,25 @@ const {
 } = require('@aws-sdk/client-s3');
 const { fromSSO } = require('@aws-sdk/credential-providers');
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
-  credentials: fromSSO({ profile: 'attendance' }),
-});
-const BUCKET = process.env.S3_BUCKET_NAME || 'face-attendance-images-phase1';
+const argv = process.argv.slice(2);
+const CONFIRM = argv.includes('--confirm');
+const bucketArg = argv.find((a) => a.startsWith('--bucket='));
+
+const s3ClientConfig = { region: process.env.AWS_REGION || 'us-east-1' };
+if (!process.env.AWS_ACCESS_KEY_ID) {
+  s3ClientConfig.credentials = fromSSO({ profile: process.env.AWS_PROFILE || 'attendance' });
+}
+const s3Client = new S3Client(s3ClientConfig);
+
+// Bucket resolution: explicit flag > env var > the server's default (s3Service.js).
+const BUCKET = (bucketArg ? bucketArg.split('=')[1] : process.env.S3_BUCKET_NAME) || 'face-attendance-images';
 const SA_EMAIL = 'hasan@aenfinite.com';
+
+// Roots that hold ALL application data.
+// - data/             : all JSON records + profile images
+// - reference-images/ : enrolled face photos
+// - attendance-images/: captured face photos from each attendance punch
+const ROOTS = ['data/', 'reference-images/', 'attendance-images/'];
 
 async function getJSON(key) {
   try {
@@ -57,176 +80,101 @@ async function listAllKeys(prefix) {
   return keys;
 }
 
-async function run() {
-  console.log('=== S3 Cleanup Script ===');
-  console.log(`Bucket: ${BUCKET}`);
-  console.log(`Keeping only SA: ${SA_EMAIL}`);
-  console.log('');
-
-  // 1. Get current employees index
-  const idx = await getJSON('data/employees-index.json');
-  if (!idx) {
-    console.error('ERROR: employees-index.json not found!');
-    process.exit(1);
-  }
-
-  const saId = idx[SA_EMAIL];
-  if (!saId) {
-    console.error(`ERROR: SA account ${SA_EMAIL} not found in index!`);
-    process.exit(1);
-  }
-
-  console.log(`SA ID: ${saId}`);
-  const totalEmployees = Object.keys(idx).length;
-  console.log(`Total employees in index: ${totalEmployees}`);
-  console.log('');
-
-  let deleted = 0;
-
-  // 2. Delete all employee JSON files except SA
-  console.log('--- Deleting employee records (except SA) ---');
-  const empKeys = await listAllKeys('data/employees/');
-  for (const key of empKeys) {
-    if (key.includes(`employee-${saId}.json`)) {
-      console.log(`  KEEPING: ${key}`);
-      continue;
-    }
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 3. Rewrite the index with only SA
-  console.log('\n--- Rewriting employees-index.json (SA only) ---');
-  await putJSON('data/employees-index.json', { [SA_EMAIL]: saId });
-  console.log('  Done');
-
-  // 4. Delete all branches
-  console.log('\n--- Deleting all branches ---');
-  const branchKeys = await listAllKeys('data/branches/');
-  for (const key of branchKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 5. Delete branch index
-  console.log('\n--- Deleting branches-index.json ---');
-  try {
-    await deleteKey('data/branches-index.json');
-    console.log('  Deleted: data/branches-index.json');
-    deleted++;
-  } catch (e) { console.log('  (not found, skipping)'); }
-
-  // 6. Delete all tasks
-  console.log('\n--- Deleting all tasks ---');
-  for (const prefix of ['data/tasks/', 'data/tasks-by-employee/', 'data/tasks-by-assigner/']) {
-    const keys = await listAllKeys(prefix);
-    for (const key of keys) {
-      await deleteKey(key);
-      console.log(`  Deleted: ${key}`);
-      deleted++;
-    }
-  }
-
-  // 7. Delete all attendance records
-  console.log('\n--- Deleting all attendance records ---');
-  const attendKeys = await listAllKeys('data/attendance/');
-  for (const key of attendKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 8. Delete all requests
-  console.log('\n--- Deleting all requests ---');
-  const requestKeys = await listAllKeys('data/requests/');
-  for (const key of requestKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 9. Delete all payslips
-  console.log('\n--- Deleting all payslips ---');
-  const payslipKeys = await listAllKeys('data/payslips/');
-  for (const key of payslipKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 10. Delete all appraisals
-  console.log('\n--- Deleting all appraisals ---');
-  const appraisalKeys = await listAllKeys('data/appraisals/');
-  for (const key of appraisalKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 11. Delete all notifications
-  console.log('\n--- Deleting all notifications ---');
-  const notifKeys = await listAllKeys('data/notifications/');
-  for (const key of notifKeys) {
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 12. Delete all profile images (except SA's if any)
-  console.log('\n--- Deleting all profile images ---');
-  const profileImgKeys = await listAllKeys('data/profile-images/');
-  for (const key of profileImgKeys) {
-    if (key.includes(saId)) {
-      console.log(`  KEEPING: ${key}`);
-      continue;
-    }
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 13. Delete all reference images (except SA's if any)
-  console.log('\n--- Deleting all reference images ---');
-  const refImgKeys = await listAllKeys('reference-images/');
-  for (const key of refImgKeys) {
-    if (key.includes(saId)) {
-      console.log(`  KEEPING: ${key}`);
-      continue;
-    }
-    await deleteKey(key);
-    console.log(`  Deleted: ${key}`);
-    deleted++;
-  }
-
-  // 14. Also check and delete Rekognition face index data if stored in S3
-  console.log('\n--- Checking for any other data folders ---');
-  const allKeys = await listAllKeys('data/');
-  const knownPrefixes = [
-    'data/employees/', 'data/employees-index.json',
-    'data/branches/', 'data/branches-index.json',
-    'data/tasks/', 'data/tasks-by-employee/', 'data/tasks-by-assigner/',
-    'data/attendance/', 'data/requests/', 'data/payslips/',
-    'data/appraisals/', 'data/notifications/', 'data/profile-images/',
-    'data/settings', 'data/dashboard',
-  ];
-  for (const key of allKeys) {
-    const known = knownPrefixes.some(p => key.startsWith(p));
-    if (!known) {
-      console.log(`  Found unknown: ${key}`);
-    }
-  }
-
-  console.log('\n=== Cleanup Complete ===');
-  console.log(`Total objects deleted: ${deleted}`);
-  console.log(`\nRemaining:`);
-  console.log(`  SA employee: data/employees/employee-${saId}.json`);
-  console.log(`  Index: data/employees-index.json (SA only)`);
-  console.log('\nDone!');
+// Group a key by its top-level data category, for a readable summary.
+function categoryOf(key) {
+  const m = key.match(/^(reference-images|data\/[^/]+)\//) || key.match(/^(data\/[^/]+\.json)$/);
+  return m ? m[1] : key;
 }
 
-run().catch(err => {
-  console.error('FATAL:', err.message || err);
+async function run() {
+  console.log('=== S3 Cleanup Script ===');
+  console.log(`Bucket:  ${BUCKET}`);
+  console.log(`Keep:    Super Admin only (${SA_EMAIL})`);
+  console.log(`Mode:    ${CONFIRM ? '*** LIVE — WILL DELETE ***' : 'DRY RUN (no changes; pass --confirm to delete)'}`);
+  console.log('');
+
+  // 1. Load the employees index and locate the SA — this also confirms we are
+  //    pointed at the RIGHT bucket. Abort loudly if the SA is not present.
+  const idx = await getJSON('data/employees-index.json');
+  if (!idx) {
+    console.error('ERROR: data/employees-index.json not found in this bucket.');
+    console.error('       Wrong bucket, or empty bucket. Aborting to avoid touching the wrong data.');
+    process.exit(1);
+  }
+  const saId = idx[SA_EMAIL];
+  if (!saId) {
+    console.error(`ERROR: Super Admin ${SA_EMAIL} not found in this bucket's index!`);
+    console.error('       Refusing to run — this guards against wiping the wrong bucket.');
+    console.error(`       Emails present: ${Object.keys(idx).join(', ')}`);
+    process.exit(1);
+  }
+  console.log(`SA id:   ${saId}`);
+  console.log(`Index:   ${Object.keys(idx).length} employee(s) currently`);
+  console.log('');
+
+  // 2. Build the keep-set: SA's own record + images. Everything else under the
+  //    data roots gets removed. Images may have any extension, so match by id.
+  const keepExact = new Set([
+    `data/employees/employee-${saId}.json`,
+    'data/employees-index.json', // rewritten below, never deleted
+  ]);
+  const isSaImage = (key) =>
+    (key.startsWith('data/profile-images/') || key.startsWith('reference-images/')) &&
+    key.includes(saId);
+
+  // 3. Enumerate everything and partition into keep / delete.
+  const allKeys = [];
+  for (const root of ROOTS) allKeys.push(...await listAllKeys(root));
+
+  const toDelete = [];
+  const kept = [];
+  for (const key of allKeys) {
+    if (keepExact.has(key) || isSaImage(key)) kept.push(key);
+    else toDelete.push(key);
+  }
+
+  // 4. Per-category summary.
+  const byCat = {};
+  for (const key of toDelete) byCat[categoryOf(key)] = (byCat[categoryOf(key)] || 0) + 1;
+  console.log('--- Objects to delete (by category) ---');
+  for (const cat of Object.keys(byCat).sort()) {
+    console.log(`  ${String(byCat[cat]).padStart(6)}  ${cat}`);
+  }
+  console.log(`  ${'------'}`);
+  console.log(`  ${String(toDelete.length).padStart(6)}  TOTAL to delete`);
+  console.log('');
+  console.log('--- Keeping ---');
+  for (const key of kept) console.log(`  KEEP: ${key}`);
+  console.log('');
+
+  if (!CONFIRM) {
+    console.log('DRY RUN complete. No changes made.');
+    console.log('Re-run with --confirm to delete the above.');
+    return;
+  }
+
+  // 5. Delete.
+  let deleted = 0;
+  for (const key of toDelete) {
+    await deleteKey(key);
+    deleted++;
+    if (deleted % 50 === 0) console.log(`  ...deleted ${deleted}/${toDelete.length}`);
+  }
+
+  // 6. Rewrite the index to SA-only.
+  await putJSON('data/employees-index.json', { [SA_EMAIL]: saId });
+
+  console.log('');
+  console.log('=== Cleanup Complete ===');
+  console.log(`Deleted: ${deleted} object(s)`);
+  console.log(`Remaining: SA record + SA images + SA-only index.`);
+}
+
+run().catch((err) => {
+  const msg = err.message || String(err);
+  if (/sso|token|expired|credential/i.test(msg)) {
+    console.error('FATAL: AWS auth failed. Run:  aws sso login --profile attendance');
+  }
+  console.error('FATAL:', msg);
   process.exit(1);
 });

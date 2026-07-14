@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
@@ -55,19 +56,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _markRead(AppNotification notif) async {
+  /// Optimistically flags the notification read in the local list, then syncs
+  /// with the backend in the background — tapping must never feel stuck on a
+  /// network round-trip (#3).
+  void _markRead(AppNotification notif) {
     final employee = context.read<AuthProvider>().employee;
     if (employee == null || notif.isRead) return;
-    try {
-      await ApiService().markNotificationRead(employee.id, notif.id);
-      _loadNotifications();
-    } catch (_) {}
+    setState(() {
+      _notifications = [
+        for (final n in _notifications)
+          n.id == notif.id ? n.copyWith(isRead: true) : n
+      ];
+    });
+    _filter();
+    ApiService().markNotificationRead(employee.id, notif.id).catchError((_) {});
   }
 
   /// Marks read, then opens the relevant page (#8) or, for informational
   /// notifications, shows the full detail (#22).
   Future<void> _handleTap(AppNotification notif) async {
-    await _markRead(notif);
+    _markRead(notif);
     if (!mounted) return;
     final role = context.read<AuthProvider>().employee?.role;
     switch (notif.type) {
@@ -104,8 +112,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         backgroundColor: context.colors.cardBg,
         title: Text(notif.title),
         content: SingleChildScrollView(
-          child: Text(notif.body,
-              style: TextStyle(color: context.colors.textSecondary)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(notif.body,
+                  style: TextStyle(color: context.colors.textSecondary)),
+              const SizedBox(height: 12),
+              Row(children: [
+                Icon(Icons.schedule,
+                    size: 14, color: context.colors.textMuted),
+                const SizedBox(width: 6),
+                Text(
+                  DateFormat('MMM d, y · HH:mm', S.locale.languageCode)
+                      .format(notif.createdAt),
+                  style: TextStyle(
+                      color: context.colors.textMuted, fontSize: 12),
+                ),
+              ]),
+            ],
+          ),
         ),
         actions: [
           TextButton(

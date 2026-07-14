@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
@@ -40,6 +41,14 @@ import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Edge-to-edge is the Android default on this Flutter version; make the system
+  // navigation (gesture) bar transparent so it doesn't draw an opaque band, and
+  // let the global SafeArea (see MaterialApp.builder) keep content above it.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarContrastEnforced: false,
+  ));
   await initializeDateFormatting();
   try {
     await Firebase.initializeApp();
@@ -69,7 +78,7 @@ class FaceAttendanceApp extends StatelessWidget {
           S.setLocale(localeProvider.locale);
           return MaterialApp(
         navigatorKey: NotificationService.navigatorKey,
-        title: 'Sobek',
+        title: 'Inukta',
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: themeProvider.mode,
@@ -81,6 +90,10 @@ class FaceAttendanceApp extends StatelessWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         debugShowCheckedModeBanner: false,
+        // Push every route's content above the system navigation (gesture) bar
+        // so bottom buttons aren't hidden under it. Screens that already wrap in
+        // SafeArea simply see a zero inset here — no double padding.
+        builder: (context, child) => SafeArea(top: false, child: child!),
         initialRoute: '/login',
         routes: {
           '/login': (_) => const LoginScreen(),

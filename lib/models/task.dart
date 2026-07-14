@@ -64,7 +64,7 @@ class Task {
         (e) => e.name == json['status'],
         orElse: () => TaskStatus.toDo,
       ),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       attachments: (json['attachments'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList(),
@@ -73,8 +73,8 @@ class Task {
       completionAttachments: (json['completion_attachments'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList(),
-      startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
-      completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
+      startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String)?.toLocal() : null,
+      completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String)?.toLocal() : null,
       taskType: json['task_type'] as String? ?? 'general',
       itemCode: json['item_code'] as String?,
       codeType: json['code_type'] as String? ?? 'qr',

@@ -66,6 +66,20 @@ router.post('/generate', async (req, res) => {
     const emp = await getJSON(`data/employees/employee-${employee_id}.json`);
     if (!emp) return res.status(404).json({ error: 'Employee not found' });
 
+    // Mirror the appraisal access rule: nobody issues a payslip to a super admin
+    // or to themselves, and HR cannot issue a payslip to a branch admin.
+    const requesterRole = (req.user?.role || '').toLowerCase();
+    const targetRole = (emp.role || '').toLowerCase();
+    if (
+      targetRole === 'superadmin' ||
+      employee_id === req.user?.sub ||
+      (requesterRole === 'hr' && targetRole === 'branchadmin')
+    ) {
+      return res
+        .status(403)
+        .json({ error: 'Not allowed to create a payslip for this employee' });
+    }
+
     const branch = emp.branch_id
       ? await getJSON(`data/branches/branch-${emp.branch_id}.json`)
       : null;
@@ -80,6 +94,10 @@ router.post('/generate', async (req, res) => {
     const records = await listJSON(`data/attendance/${employee_id}/`);
     const [py, pm] = period.split('-').map(Number);
     const inPeriod = records.filter(r => {
+      // A day_status record applies to its `date`, not to the moment it was
+      // created — a vacation approved in May for June days must land in June,
+      // otherwise those days read as absent and get deducted (#16/#22).
+      if (r.type === 'day_status' && r.date) return r.date.startsWith(period);
       const t = r.timestamp || r.date;
       if (!t) return false;
       const d = new Date(t);
@@ -103,9 +121,25 @@ router.post('/generate', async (req, res) => {
     const startMin = toMin(workStart);
     const endMin = toMin(workEnd);
 
+    // Branch working hours are wall-clock local time, but timestamps are
+    // stored in UTC and this server usually runs in UTC — comparing
+    // `getHours()` directly flags late/early against the wrong clock (#22).
+    // PAYROLL_TZ_OFFSET_MINUTES (e.g. 180 for UTC+3) fixes the conversion;
+    // without it we fall back to the server's local timezone.
+    const tzOffsetMin = parseInt(process.env.PAYROLL_TZ_OFFSET_MINUTES || '', 10);
+    const localMinutesOfDay = (iso) => {
+      const d = new Date(iso);
+      if (Number.isFinite(tzOffsetMin)) {
+        const shifted = new Date(d.getTime() + tzOffsetMin * 60000);
+        return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+      }
+      return d.getHours() * 60 + d.getMinutes();
+    };
+
     let lateCount = 0, earlyCount = 0, absentCount = 0,
         vacationCount = 0, holidayCount = 0, presentCount = 0,
-        overtimeMinutes = 0;
+        incompleteCount = 0, overtimeMinutes = 0;
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${py}-${String(pm).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
@@ -131,21 +165,26 @@ router.post('/generate', async (req, res) => {
       if (!checkIn) { absentCount++; continue; }
       presentCount++;
 
-      const ci = new Date(checkIn.timestamp);
-      const ciMin = ci.getHours() * 60 + ci.getMinutes();
+      const ciMin = localMinutesOfDay(checkIn.timestamp);
       if (ciMin > startMin) lateCount++;
 
       if (checkOut) {
-        const co = new Date(checkOut.timestamp);
-        const coMin = co.getHours() * 60 + co.getMinutes();
+        const coMin = localMinutesOfDay(checkOut.timestamp);
         if (coMin < endMin) earlyCount++;
         else if (coMin > endMin) overtimeMinutes += (coMin - endMin);
+      } else if (dateStr < todayStr) {
+        // Checked in but never checked out on a past day: an "incomplete"
+        // day, deducted at the early-out rate (#22). Today is exempt — the
+        // employee may simply still be at work.
+        incompleteCount++;
       }
     }
 
     const basic = Number(emp.basic_salary || 0);
     const deductions =
-      lateCount * dedLate + earlyCount * dedEarly + absentCount * dedAbsent;
+      lateCount * dedLate +
+      (earlyCount + incompleteCount) * dedEarly +
+      absentCount * dedAbsent;
     // Hourly rate based on standard 22 working days * 8 hours
     const hourlyRate = basic > 0 ? basic / (22 * 8) : 0;
     const overtimePay = (overtimeMinutes / 60) * hourlyRate * 1.5;
@@ -157,6 +196,7 @@ router.post('/generate', async (req, res) => {
       absent_days: absentCount,
       late_count: lateCount,
       early_out_count: earlyCount,
+      incomplete_count: incompleteCount,
       vacation_days: vacationCount,
       holiday_days: holidayCount,
       overtime_minutes: overtimeMinutes,

@@ -341,8 +341,12 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       case UserRole.employee: roleColor = AppTheme.accentGreen; break;
     }
 
-    // Cannot delete yourself or superAdmin
-    final canDelete = emp.role != UserRole.superAdmin && emp.id != me?.id;
+    // Cannot delete yourself or superAdmin; #8 — HR cannot delete another HR
+    // (or a branch admin), being the same/lower authority.
+    final canDelete = emp.role != UserRole.superAdmin &&
+        emp.id != me?.id &&
+        !(me?.role == UserRole.hr &&
+            (emp.role == UserRole.hr || emp.role == UserRole.branchAdmin));
     // HR cannot edit branchAdmin
     final canEdit = !(me?.role == UserRole.hr && emp.role == UserRole.branchAdmin);
     // Can toggle hold: SA can hold anyone except SA, BA can hold branch employees, HR can hold non-BA

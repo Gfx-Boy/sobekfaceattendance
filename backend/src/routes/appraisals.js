@@ -13,6 +13,11 @@ const cycleKey = (id) => `data/appraisal-cycles/cycle-${id}.json`;
 // POST /api/appraisals/cycles — start an appraisal cycle (Branch Admin only)
 router.post('/cycles', async (req, res) => {
   try {
+    // Only a branch admin can start a cycle (frontend hides the action; this is
+    // the server-side enforcement).
+    if ((req.user?.role || '') !== 'branchAdmin') {
+      return res.status(403).json({ error: 'Only a branch admin can start an appraisal cycle' });
+    }
     const { branch_id, branch_name, start_date, end_date, admin_weight, hr_weight, created_by, created_by_name } = req.body;
     if (!branch_id || !start_date || !end_date) {
       return res.status(400).json({ error: 'branch_id, start_date, and end_date are required' });
@@ -141,10 +146,10 @@ router.post('/', async (req, res) => {
       } catch (_) { /* noop */ }
     }
 
-    // If a cycle is referenced it must be active; if it has expired, reject so
-    // the evaluator knows. When no cycle is given we attach the branch's active
-    // cycle if one exists, but do NOT block the evaluation when there isn't one
-    // (#17 — HR/Admin must be able to evaluate even before a cycle is started).
+    // Every appraisal must belong to an ACTIVE cycle. A referenced cycle must be
+    // active; otherwise we attach the branch's active cycle. If the branch has no
+    // active cycle, reject — evaluation is impossible until the branch admin
+    // starts one. (Supersedes the old #17 "evaluate before a cycle" behavior.)
     let resolvedCycleId = cycle_id || null;
     if (cycle_id) {
       const c = await getJSON(cycleKey(cycle_id));
@@ -153,7 +158,12 @@ router.post('/', async (req, res) => {
       }
     } else {
       const active = await findActiveCycle(branch_id);
-      resolvedCycleId = active ? active.id : null;
+      if (!active) {
+        return res.status(400).json({
+          error: 'No active appraisal cycle — the branch admin must start a cycle first.',
+        });
+      }
+      resolvedCycleId = active.id;
     }
 
     const id = uuidv4();

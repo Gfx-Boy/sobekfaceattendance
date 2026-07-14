@@ -70,8 +70,10 @@ router.post('/', async (req, res) => {
           if (!key.endsWith('.json') || key.includes('index')) continue;
           const admin = await getJSON(key);
           if (!admin) continue;
-          // Notify BA of same branch
-          if (admin.role === 'branchAdmin' && admin.branch_id === emp.branch_id && admin.id !== employee_id) {
+          // Notify BA and HR of the same branch — both handle requests, so
+          // both must hear about new ones (client point 13).
+          if ((admin.role === 'branchAdmin' || admin.role === 'hr') &&
+              admin.branch_id === emp.branch_id && admin.id !== employee_id) {
             notificationRoutes.sendPushToEmployee(
               admin.id,
               'New Request',

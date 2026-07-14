@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../models/request.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
+import '../widgets/change_password_dialog.dart';
 
 class MyRequestsScreen extends StatefulWidget {
   const MyRequestsScreen({super.key});
@@ -338,6 +339,34 @@ class _MyRequestsScreenState extends State<MyRequestsScreen>
             ],
             if (req.reviewedBy != null && req.reviewedBy!.isNotEmpty)
               row(Icons.rate_review_outlined, S.reviewedBy, req.reviewedBy!),
+            // Point 11 — when was the request accepted/rejected.
+            if (req.reviewedAt != null)
+              row(
+                  Icons.schedule,
+                  S.reviewedAtLabel,
+                  DateFormat('MMM d, y · HH:mm', S.locale.languageCode)
+                      .format(req.reviewedAt!)),
+            // #5 — an approved password-change request lets the employee set
+            // the new password right from here instead of hunting for the
+            // action in their profile.
+            if (req.type == RequestType.passwordChange &&
+                req.status == RequestStatus.approved &&
+                (context.read<AuthProvider>().employee?.passwordResetPending ??
+                    false)) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.lock_reset),
+                  label: Text(S.changePasswordNow),
+                  onPressed: () async {
+                    Navigator.pop(ctx);
+                    await showChangePasswordDialog(context);
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
           ]),
         ),

@@ -45,7 +45,7 @@ class Payslip {
       paymentDate: json['payment_date'] as String?,
       notes: json['notes'] as String? ?? '',
       branchId: json['branch_id'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       breakdown: json['breakdown'] as Map<String, dynamic>?,
     );
   }

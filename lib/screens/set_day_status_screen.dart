@@ -82,10 +82,13 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
         _selectedBranch = _branchById(me?.branchId);
         final list = await ApiService().getAllEmployees(branchId: me?.branchId);
         // Admin cannot act on himself; #26 — HR cannot set status for the
-        // branch admin.
+        // branch admin; #12 — nor for another HR (same title/level).
         _branchEmployees = list.where((e) {
           if (e.id == me?.id) return false;
           if (me?.role == UserRole.hr && e.role == UserRole.branchAdmin) {
+            return false;
+          }
+          if (me?.role == UserRole.hr && e.role == UserRole.hr) {
             return false;
           }
           return true;

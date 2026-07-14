@@ -40,7 +40,7 @@ class Appraisal {
       overallScore: (json['overall_score'] as num?)?.toDouble() ?? 0,
       status: json['status'] as String? ?? 'submitted',
       branchId: json['branch_id'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
     );
   }
 

@@ -42,20 +42,37 @@ const upload = multer({
 const employeeKey = (id) => `data/employees/employee-${id}.json`;
 const indexKey = 'data/employees-index.json';
 
-// Notify relevant admins when an employee is created
-async function notifyAdminsOfNewEmployee(newEmployee) {
+// Best-effort identification of who is making this request. The employees
+// router is mounted without requireAuth (login/profile-image must stay
+// public), but the app always sends its Bearer token — decode it when present
+// so notifications can say WHO performed an action (client point 12).
+async function actorFromReq(req) {
   try {
+    const h = req.headers.authorization || '';
+    if (!h.startsWith('Bearer ')) return null;
+    const payload = jwt.verify(h.slice(7), ACCESS_TOKEN_SECRET);
+    const emp = await getJSON(employeeKey(payload.sub));
+    return emp ? { id: emp.id, name: emp.name } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Notify relevant admins when an employee is created
+async function notifyAdminsOfNewEmployee(newEmployee, actor) {
+  try {
+    const by = actor?.name ? ` by ${actor.name}` : '';
     const keys = await listKeys('data/employees/');
     for (const key of keys) {
       if (!key.endsWith('.json') || key.includes('index')) continue;
       const emp = await getJSON(key);
-      if (!emp) continue;
+      if (!emp || emp.id === actor?.id) continue; // the actor already knows
       // Notify all superAdmins
       if (emp.role === 'superAdmin') {
         notificationRoutes.sendPushToEmployee(
           emp.id,
           'New Employee Created',
-          `${newEmployee.name} (${newEmployee.role}) was added${newEmployee.branch_name ? ' to ' + newEmployee.branch_name : ''}`,
+          `${newEmployee.name} (${newEmployee.role}) was added${newEmployee.branch_name ? ' to ' + newEmployee.branch_name : ''}${by}`,
           { type: 'employee_created', employee_id: newEmployee.id }
         ).catch(e => console.error('Push failed:', e.message));
       }
@@ -64,13 +81,41 @@ async function notifyAdminsOfNewEmployee(newEmployee) {
         notificationRoutes.sendPushToEmployee(
           emp.id,
           'New Employee in Your Branch',
-          `${newEmployee.name} (${newEmployee.role}) was added to ${newEmployee.branch_name || 'your branch'}`,
+          `${newEmployee.name} (${newEmployee.role}) was added to ${newEmployee.branch_name || 'your branch'}${by}`,
           { type: 'employee_created', employee_id: newEmployee.id }
         ).catch(e => console.error('Push failed:', e.message));
       }
     }
   } catch (e) {
     console.error('Failed to notify admins of new employee:', e.message);
+  }
+}
+
+// Notify relevant admins when an employee is deleted (#7)
+async function notifyAdminsOfDeletedEmployee(deletedEmployee, actor) {
+  try {
+    const by = actor?.name ? ` by ${actor.name}` : '';
+    const keys = await listKeys('data/employees/');
+    for (const key of keys) {
+      if (!key.endsWith('.json') || key.includes('index')) continue;
+      const emp = await getJSON(key);
+      if (!emp || emp.id === deletedEmployee.id) continue;
+      if (actor && emp.id === actor.id) continue; // the deleter already knows
+      const isSuperAdmin = emp.role === 'superAdmin';
+      const isSameBranchAdmin =
+        (emp.role === 'branchAdmin' || emp.role === 'hr') &&
+        deletedEmployee.branch_id &&
+        emp.branch_id === deletedEmployee.branch_id;
+      if (!isSuperAdmin && !isSameBranchAdmin) continue;
+      notificationRoutes.sendPushToEmployee(
+        emp.id,
+        'Employee Deleted',
+        `${deletedEmployee.name} (${deletedEmployee.role}) was removed${deletedEmployee.branch_name ? ' from ' + deletedEmployee.branch_name : ''}${by}`,
+        { type: 'employee_deleted', employee_id: deletedEmployee.id }
+      ).catch(e => console.error('Push failed:', e.message));
+    }
+  } catch (e) {
+    console.error('Failed to notify admins of deleted employee:', e.message);
   }
 }
 
@@ -230,7 +275,7 @@ router.post('/', async (req, res) => {
     res.status(201).json({ id: employee.id, name: employee.name, email: employee.email, role: employee.role, branch_id: employee.branch_id, branch_name: employee.branch_name });
 
     // Notify admins asynchronously (don't block response)
-    notifyAdminsOfNewEmployee(employee);
+    actorFromReq(req).then((actor) => notifyAdminsOfNewEmployee(employee, actor));
   } catch (error) {
     console.error('Create employee error:', error);
     res.status(500).json({ error: awsErrorMessage(error) });
@@ -330,7 +375,7 @@ router.post('/register', upload.single('reference_image'), async (req, res) => {
     });
 
     // Notify admins asynchronously
-    notifyAdminsOfNewEmployee(employee);
+    actorFromReq(req).then((actor) => notifyAdminsOfNewEmployee(employee, actor));
   } catch (error) {
     console.error('Registration error:', error);
     if (req.file && fs.existsSync(req.file.path)) {
@@ -587,9 +632,12 @@ router.post('/:id/profile-image', upload.single('image'), async (req, res) => {
     await uploadImage(localPath, s3Key);
     fs.unlinkSync(localPath);
 
-    // Store S3 key for proxy serving and a proxy URL for the client
+    // Store S3 key for proxy serving and a proxy URL for the client.
+    // The `v` param changes on every upload so image caches (Flutter's
+    // in-memory cache, HTTP caches honoring max-age) treat it as a new URL —
+    // otherwise the old photo keeps showing everywhere (#2).
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const imageUrl = `${baseUrl}/api/employees/${req.params.id}/profile-image`;
+    const imageUrl = `${baseUrl}/api/employees/${req.params.id}/profile-image?v=${Date.now()}`;
     emp.profile_image_url = imageUrl;
     emp.profile_image_key = s3Key;
     emp.updated_at = new Date().toISOString();
@@ -671,6 +719,10 @@ router.delete('/:id', async (req, res) => {
     await saveIndex(idx);
 
     res.json({ message: 'Employee deleted' });
+
+    // Fire-and-forget — the deletion already succeeded.
+    actorFromReq(req).then((actor) =>
+      notifyAdminsOfDeletedEmployee(emp, actor));
   } catch (error) {
     console.error('Delete employee error:', error);
     res.status(500).json({ error: awsErrorMessage(error) });

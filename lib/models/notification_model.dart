@@ -30,6 +30,16 @@ class AppNotification {
     this.relatedId,
   });
 
+  AppNotification copyWith({bool? isRead}) => AppNotification(
+        id: id,
+        title: title,
+        body: body,
+        type: type,
+        createdAt: createdAt,
+        isRead: isRead ?? this.isRead,
+        relatedId: relatedId,
+      );
+
   /// The backend stores notification [type] as snake_case strings (e.g.
   /// `task_assigned`, `payslip_created`) that do NOT match the Dart enum
   /// names, so a naive `.name` lookup always fell through to [general] —
@@ -91,7 +101,7 @@ class AppNotification {
       title: json['title'] as String,
       body: json['body'] as String? ?? '',
       type: _parseType(json['type'] as String?),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       isRead: json['is_read'] as bool? ?? false,
       relatedId: _parseRelatedId(json),
     );

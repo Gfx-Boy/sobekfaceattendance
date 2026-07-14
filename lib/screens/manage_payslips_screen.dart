@@ -46,6 +46,20 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   bool get _isSA =>
       context.read<AuthProvider>().employee?.role == UserRole.superAdmin;
 
+  /// Whether the current user may issue a payslip to [e]. Mirrors the appraisal
+  /// rule (create_appraisal_screen): nobody pays a super admin, HR cannot pay a
+  /// branch admin, and nobody can issue a payslip to themselves.
+  bool _canIssuePayslipTo(Employee e) {
+    final me = context.read<AuthProvider>().employee;
+    if (me == null) return false;
+    if (e.id == me.id) return false;
+    if (e.role == UserRole.superAdmin) return false;
+    if (me.role == UserRole.hr && e.role == UserRole.branchAdmin) return false;
+    // #13 — HR cannot issue a payslip to another HR (same title/level).
+    if (me.role == UserRole.hr && e.role == UserRole.hr) return false;
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -105,7 +119,9 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _payslips = all;
       _allPayslips = all;
-      _empItems = _employeesMap.values.map((emp) {
+      _empItems = _employeesMap.values
+          .where(_canIssuePayslipTo)
+          .map((emp) {
         final count = all.where((p) => p.employeeId == emp.id).length;
         return <String, dynamic>{
           'id': emp.id,
@@ -295,6 +311,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (branchId == null) return;
     final employees = _employeesMap.values
         .where((e) => e.branchId == branchId)
+        .where(_canIssuePayslipTo)
         .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     if (employees.isEmpty) {
@@ -543,7 +560,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                       color: context.colors.textPrimary,
                       fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  S.employeeCountLabel(emp['count'] as int),
+                  S.fileCountLabel(emp['count'] as int),
                   style: TextStyle(
                       color: context.colors.textSecondary, fontSize: 12)),
               trailing:
@@ -836,6 +853,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         : DateTime(DateTime.now().year, DateTime.now().month);
     Map<String, dynamic>? preview;
     bool busy = false;
+    bool autoStarted = false;
 
     await showDialog<void>(
       context: context,
@@ -881,6 +899,13 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
           }
         }
 
+        // Auto-load the preview the first time the dialog builds so the Save
+        // button isn't stuck disabled waiting for a manual "Calculate" tap.
+        if (!autoStarted) {
+          autoStarted = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) => runPreview());
+        }
+
         final period =
             '${selectedMonth.year}-${selectedMonth.month.toString().padLeft(2, '0')}';
         return AlertDialog(
@@ -919,6 +944,8 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                                       selectedMonth = DateTime(picked.year, picked.month);
                                       preview = null;
                                     });
+                                    // Recalculate for the newly picked month.
+                                    runPreview();
                                   }
                                 },
                         ),

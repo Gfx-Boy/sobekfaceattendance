@@ -4,6 +4,7 @@ import '../config/app_theme.dart';
 import '../models/branch.dart';
 import '../models/employee.dart';
 import '../models/appraisal.dart';
+import '../models/appraisal_cycle.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
@@ -25,6 +26,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   Map<String, Employee> _employeesMap = {};
   List<Branch> _branches = [];
   List<Appraisal> _allAppraisals = [];
+  List<AppraisalCycle> _cycles = [];
 
   Branch? _selectedBranch;
   String? _selectedPeriod;
@@ -92,10 +94,12 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         ApiService().getAllEmployees(),
         ApiService().getBranches(),
         ApiService().getAllAppraisals(),
+        ApiService().getAppraisalCycles(),
       ]);
       final employees = results[0] as List<Employee>;
       _branches = results[1] as List<Branch>;
       _allAppraisals = results[2] as List<Appraisal>;
+      _cycles = results[3] as List<AppraisalCycle>;
 
       _employeesMap = {for (final e in employees) e.id: e};
     } catch (e) {
@@ -110,6 +114,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       final branchId = context.read<AuthProvider>().employee?.branchId;
       final employees = await ApiService().getAllEmployees(branchId: branchId);
       _employeesMap = {for (final e in employees) e.id: e};
+      _cycles = await ApiService().getAppraisalCycles(branchId: branchId);
 
       final all = <Appraisal>[];
       for (final emp in employees) {
@@ -121,8 +126,17 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _appraisals = all;
       _allAppraisals = all;
+      final myRole = context.read<AuthProvider>().employee?.role;
+      final myId = context.read<AuthProvider>().employee?.id;
       _empItems = _employeesMap.values
           .where((emp) => emp.role != UserRole.superAdmin)
+          // An HR evaluates only plain employees — peers (other HRs) and the
+          // branch admin are out of their scope. They keep their own entry so
+          // they can view results the branch admin gave them.
+          .where((emp) =>
+              myRole != UserRole.hr ||
+              emp.role == UserRole.employee ||
+              emp.id == myId)
           .map((emp) {
         final count = all.where((a) => a.employeeId == emp.id).length;
         return <String, dynamic>{
@@ -294,6 +308,12 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     );
   }
 
+  /// True when the given branch currently has an active appraisal cycle.
+  bool _hasActiveCycleFor(String? branchId) {
+    if (branchId == null || branchId.isEmpty) return false;
+    return _cycles.any((c) => c.branchId == branchId && c.isActive);
+  }
+
   Widget? _buildFab() {
     final role = context.read<AuthProvider>().employee?.role;
     final canCreate = role == UserRole.superAdmin ||
@@ -301,9 +321,21 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         role == UserRole.hr;
     if (!canCreate) return null;
     if (_level == _AppraisalLevel.appraisals && _selectedEmployee != null) {
-      // #23/#37 — HR cannot appraise a Branch Admin
+      // Nobody appraises themself — branch admin included.
+      if (_selectedEmployee!.id ==
+          context.read<AuthProvider>().employee?.id) {
+        return null;
+      }
+      // #23/#37 — HR cannot appraise a Branch Admin; #14 — nor another HR.
       if (role == UserRole.hr &&
-          _selectedEmployee!.role == UserRole.branchAdmin) {
+          (_selectedEmployee!.role == UserRole.branchAdmin ||
+              _selectedEmployee!.role == UserRole.hr)) {
+        return null;
+      }
+      // Evaluations may only be created inside an active cycle (started by the
+      // branch admin). With no active cycle for the employee's branch, hide the
+      // create button — a banner explains why.
+      if (!_hasActiveCycleFor(_selectedEmployee!.branchId)) {
         return null;
       }
       return FloatingActionButton(
@@ -497,7 +529,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
                       color: context.colors.textPrimary,
                       fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  S.employeeCountLabel(emp['count'] as int),
+                  S.fileCountLabel(emp['count'] as int),
                   style: TextStyle(
                       color: context.colors.textSecondary, fontSize: 12)),
               trailing:
@@ -523,6 +555,55 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   Widget _buildAppraisalsList() {
+    final banner = _noCycleBanner();
+    final content = _appraisalsContent();
+    if (banner == null) return content;
+    return Column(children: [banner, Expanded(child: content)]);
+  }
+
+  /// Shown when an evaluator is viewing an employee but the branch has no active
+  /// cycle, so evaluation isn't possible yet.
+  Widget? _noCycleBanner() {
+    final role = context.read<AuthProvider>().employee?.role;
+    final canCreate = role == UserRole.superAdmin ||
+        role == UserRole.branchAdmin ||
+        role == UserRole.hr;
+    if (!canCreate || _selectedEmployee == null) return null;
+    if (role == UserRole.hr &&
+        (_selectedEmployee!.role == UserRole.branchAdmin ||
+            _selectedEmployee!.role == UserRole.hr)) {
+      return null; // HR can't appraise a branch admin or an HR peer (#14)
+    }
+    if (_hasActiveCycleFor(_selectedEmployee!.branchId)) return null;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.warningAmber.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.warningAmber.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: AppTheme.warningAmber, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              S.noActiveCycleNotice,
+              style: const TextStyle(
+                color: AppTheme.warningAmber,
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _appraisalsContent() {
     if (_appraisals.isEmpty) {
       return _buildEmpty(S.noEvaluations, Icons.assessment_outlined);
     }
@@ -533,13 +614,48 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
             a.period.toLowerCase().contains(_q) ||
             a.evaluatorName.toLowerCase().contains(_q))
         .toList();
+    // #21 — group by month. The list is already sorted newest-first, so a
+    // header row is emitted whenever the month of `createdAt` changes.
+    final items = <Object>[];
+    String? lastMonthKey;
+    for (final a in appraisals) {
+      final key = '${a.createdAt.year}-${a.createdAt.month}';
+      if (key != lastMonthKey) {
+        lastMonthKey = key;
+        items.add('${S.months[a.createdAt.month - 1]} ${a.createdAt.year}');
+      }
+      items.add(a);
+    }
     return RefreshIndicator(
-      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchAppraisals,
+      onRefresh: _isSA
+          ? _loadSuperAdminData
+          : (_isEmployee ? _loadMyAppraisals : _loadBranchAppraisals),
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
-        itemCount: appraisals.length,
+        itemCount: items.length,
         itemBuilder: (context, i) {
-          final a = appraisals[i];
+          final item = items[i];
+          if (item is String) {
+            return Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : 8, bottom: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_month_outlined,
+                      size: 16, color: context.colors.textMuted),
+                  const SizedBox(width: 6),
+                  Text(
+                    item,
+                    style: TextStyle(
+                      color: context.colors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          final a = item as Appraisal;
           return GestureDetector(
             onTap: () => _showAppraisalDetail(a),
             child: Container(

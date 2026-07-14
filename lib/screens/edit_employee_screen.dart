@@ -35,6 +35,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   late bool _enableGeofence;
   LatLng? _pickedLocation;
   bool _loading = false;
+  bool _obscurePassword = true;
 
   // Branch selection
   List<Branch> _branches = [];
@@ -325,9 +326,10 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
               Builder(builder: (context) {
                 final currentRole =
                     context.read<AuthProvider>().employee?.role ?? UserRole.employee;
+                // #9 — basic salary is only visible/editable to the super admin
+                // and branch admin (not HR).
                 final canEditSalary = currentRole == UserRole.superAdmin ||
-                    currentRole == UserRole.branchAdmin ||
-                    currentRole == UserRole.hr;
+                    currentRole == UserRole.branchAdmin;
                 if (!canEditSalary) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -343,12 +345,35 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                   ),
                 );
               }),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: InputDecoration(labelText: S.newPasswordHint, prefixIcon: Icon(Icons.lock_outline, color: context.colors.textSecondary)),
-              ),
+              // #10 — new password is only available to the super admin and
+              // branch admin, with an eye icon to reveal what is typed.
+              Builder(builder: (context) {
+                final currentRole =
+                    context.read<AuthProvider>().employee?.role ?? UserRole.employee;
+                final canSetPassword = currentRole == UserRole.superAdmin ||
+                    currentRole == UserRole.branchAdmin;
+                if (!canSetPassword) return const SizedBox.shrink();
+                return TextFormField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  style: TextStyle(color: context.colors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: S.newPasswordHint,
+                    prefixIcon: Icon(Icons.lock_outline,
+                        color: context.colors.textSecondary),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: context.colors.textSecondary,
+                      ),
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                );
+              }),
               const SizedBox(height: 16),
               Builder(
                 builder: (context) {

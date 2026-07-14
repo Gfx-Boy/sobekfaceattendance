@@ -80,7 +80,7 @@ class Employee {
       phone: json['phone'] as String?,
       position: json['position'] as String?,
       lastOnline: json['last_online'] != null
-          ? DateTime.tryParse(json['last_online'] as String)
+          ? DateTime.tryParse(json['last_online'] as String)?.toLocal()
           : null,
       profileImageUrl: json['profile_image_url'] as String?,
       allowedLatitude: (json['allowed_latitude'] as num?)?.toDouble(),

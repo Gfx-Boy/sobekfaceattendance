@@ -508,6 +508,22 @@ class ApiService {
         throw ApiException('Failed to update task (${response.statusCode})');
       });
 
+  /// Persist a warehouse counting tally without changing the task status, so
+  /// the assignee can save progress and continue counting later (#18).
+  Future<Task> saveTaskCount(String taskId, int countedTotal) =>
+      _call(() async {
+        final response = await _client
+            .patch(Uri.parse('$baseUrl/tasks/$taskId'),
+                headers: _headers,
+                body: json.encode({'counted_total': countedTotal}))
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          return Task.fromJson(
+              json.decode(response.body) as Map<String, dynamic>);
+        }
+        throw ApiException('Failed to save count (${response.statusCode})');
+      });
+
   /// Self password reset for an employee whose password_reset_pending flag is
   /// set (i.e. their password-change request has been approved).
   Future<void> selfChangePassword({

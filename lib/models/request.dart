@@ -86,7 +86,7 @@ class AppRequest {
       ),
       title: json['title'] as String,
       description: json['description'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       startDate: json['start_date'] != null
           ? DateTime.tryParse(json['start_date'] as String)
           : null,
@@ -96,7 +96,7 @@ class AppRequest {
       comment: json['comment'] as String?,
       reviewedBy: json['reviewed_by'] as String?,
       reviewedAt: json['reviewed_at'] != null
-          ? DateTime.tryParse(json['reviewed_at'] as String)
+          ? DateTime.tryParse(json['reviewed_at'] as String)?.toLocal()
           : null,
       extraFields: (json['extra_fields'] as Map?)?.cast<String, dynamic>() ??
           const {},

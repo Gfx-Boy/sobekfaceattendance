@@ -18,11 +18,27 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   TodaySummary? _todaySummary;
   bool _loadingStatus = false;
+  int _unreadNotifications = 0;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadTodayStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadTodayStatus();
+      _loadUnreadCount();
+    });
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final employee = context.read<AuthProvider>().employee;
+    if (employee == null) return;
+    try {
+      final notifs = await ApiService().getNotifications(employee.id);
+      if (mounted) {
+        setState(
+            () => _unreadNotifications = notifs.where((n) => !n.isRead).length);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadTodayStatus() async {
@@ -63,16 +79,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         radius: 22,
                         backgroundColor:
                             AppTheme.primaryBlue.withValues(alpha: 0.2),
-                        child: Text(
-                          employee?.name.isNotEmpty == true
-                              ? employee!.name[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.primaryBlue,
-                          ),
-                        ),
+                        backgroundImage:
+                            (employee?.profileImageUrl ?? '').isNotEmpty
+                                ? NetworkImage(employee!.profileImageUrl!)
+                                : null,
+                        child: (employee?.profileImageUrl ?? '').isEmpty
+                            ? Text(
+                                employee?.name.isNotEmpty == true
+                                    ? employee!.name[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.primaryBlue,
+                                ),
+                              )
+                            : null,
                       ),
                       Positioned(
                         bottom: 0,
@@ -113,19 +135,56 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   GestureDetector(
-                    onTap: () =>
-                        Navigator.pushNamed(context, '/notifications'),
-                    child: Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: context.colors.cardBg,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: context.colors.surfaceBorder, width: 0.5),
-                      ),
-                      child: Icon(Icons.notifications_outlined,
-                          color: context.colors.textSecondary, size: 22),
+                    onTap: () async {
+                      await Navigator.pushNamed(context, '/notifications');
+                      // Refresh the badge after the user read/cleared them.
+                      _loadUnreadCount();
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: context.colors.cardBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: context.colors.surfaceBorder,
+                                width: 0.5),
+                          ),
+                          child: Icon(Icons.notifications_outlined,
+                              color: context.colors.textSecondary, size: 22),
+                        ),
+                        if (_unreadNotifications > 0)
+                          Positioned(
+                            top: -4,
+                            right: -4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              constraints: const BoxConstraints(minWidth: 18),
+                              decoration: BoxDecoration(
+                                color: AppTheme.checkOutRed,
+                                borderRadius: BorderRadius.circular(9),
+                                border: Border.all(
+                                    color: context.colors.scaffoldBg,
+                                    width: 1.5),
+                              ),
+                              child: Text(
+                                _unreadNotifications > 99
+                                    ? '99+'
+                                    : '$_unreadNotifications',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ],
@@ -367,12 +426,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: const Color(0xFF4ECDC4),
                       onTap: () => Navigator.pushNamed(context, '/manage-payslips'),
                     ),
-                    _QuickAction(
-                      icon: Icons.calendar_month,
-                      label: S.attendanceHistory,
-                      color: AppTheme.primaryBlue,
-                      onTap: () => Navigator.pushNamed(context, '/history'),
-                    ),
+                    // #11 — Attendance History widget removed; the attendance
+                    // calendar tab already covers history for HR.
                     _QuickAction(
                       icon: Icons.event_note,
                       label: S.setDayStatusTitle,

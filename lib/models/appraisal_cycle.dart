@@ -46,9 +46,9 @@ class AppraisalCycle {
         status: json['status'] as String? ?? 'active',
         createdBy: json['created_by'] as String?,
         createdByName: json['created_by_name'] as String?,
-        createdAt: DateTime.parse(json['created_at'] as String),
+        createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
         closedAt: json['closed_at'] != null
-            ? DateTime.tryParse(json['closed_at'] as String)
+            ? DateTime.tryParse(json['closed_at'] as String)?.toLocal()
             : null,
         closedReason: json['closed_reason'] as String?,
       );

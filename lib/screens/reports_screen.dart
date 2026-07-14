@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
+import '../widgets/attendance_calendar.dart';
 
 enum _ReportLevel { branches, titles, employees, calendar }
 
@@ -437,211 +438,57 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Widget _buildCalendar() {
-    final Map<String, List<AttendanceRecord>> dayRecords = {};
-    final Map<String, String> dayStatus = {};
+    // Managers view an employee's attendance in the same rich layout as the
+    // employee's own screen — but read-only (canEdit: false, no edit callback).
+    // Tapping a day opens the existing read-only detail sheet (incl. requests).
+    return AttendanceCalendar(
+      month: _selectedMonth,
+      records: _attendanceRecords,
+      canEdit: false,
+      showStatusLegend: true,
+      onPrevMonth: () => setState(() {
+        _selectedMonth =
+            DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+      }),
+      onNextMonth: () => setState(() {
+        _selectedMonth =
+            DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+      }),
+      onTapDay: _showDayDetailForDate,
+    );
+  }
 
+  /// Gathers the records/status/requests for [date] and opens the read-only
+  /// day detail sheet (no-op when there's nothing to show).
+  void _showDayDetailForDate(DateTime date) {
+    final dateKey = DateFormat('yyyy-MM-dd').format(date);
+    final records = _attendanceRecords
+        .where((r) =>
+            r.type != 'day_status' &&
+            DateFormat('yyyy-MM-dd').format(r.timestamp) == dateKey)
+        .toList();
+    String status = '';
     for (final r in _attendanceRecords) {
-      if (r.type == 'day_status') {
-        final date = r.date ?? '';
-        if (date.isNotEmpty) dayStatus[date] = r.dayStatus ?? '';
-      } else {
-        final key = DateFormat('yyyy-MM-dd').format(r.timestamp);
-        dayRecords.putIfAbsent(key, () => []).add(r);
+      if (r.type == 'day_status' && (r.date ?? '') == dateKey) {
+        status = r.dayStatus ?? '';
       }
     }
-
-    final firstDay = DateTime(_selectedMonth.year, _selectedMonth.month, 1);
-    final lastDay = DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0);
-    final startOffset = firstDay.weekday % 7;
-
-    return Column(
-      children: [
-        _buildMonthSelector(),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: Row(
-            children: S.weekDaysSun
-                .map((d) => Expanded(
-                    child: Center(
-                        child: Text(d,
-                            style: TextStyle(
-                                color: context.colors.textMuted,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500)))))
-                .toList(),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 7,
-              childAspectRatio: 0.85,
-            ),
-            itemCount: startOffset + lastDay.day,
-            itemBuilder: (context, index) {
-              if (index < startOffset) return const SizedBox();
-              final day = index - startOffset + 1;
-              final date =
-                  DateTime(_selectedMonth.year, _selectedMonth.month, day);
-              final dateKey = DateFormat('yyyy-MM-dd').format(date);
-              final records = dayRecords[dateKey] ?? [];
-              final status = dayStatus[dateKey] ?? '';
-              final isWeekend = date.weekday == DateTime.saturday ||
-                  date.weekday == DateTime.sunday;
-              final isToday =
-                  dateKey == DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-              Color bgColor = Colors.transparent;
-              if (isWeekend || status == 'holiday') {
-                bgColor = context.colors.textMuted.withValues(alpha: 0.15);
-              } else if (status == 'vacation') {
-                bgColor = AppTheme.primaryBlue.withValues(alpha: 0.15);
-              } else if (status == 'absent') {
-                bgColor = AppTheme.checkOutRed.withValues(alpha: 0.15);
-              }
-
-              final signIns = records
-                  .where((r) => r.type == 'sign_in' || r.type == 'check_in')
-                  .toList();
-              final signOuts = records
-                  .where((r) => r.type == 'sign_out' || r.type == 'check_out')
-                  .toList();
-
-              final dayRequests = _employeeRequests.where((r) {
-                if (r.startDate == null) return false;
-                final s = DateFormat('yyyy-MM-dd').format(r.startDate!);
-                final e = r.endDate != null
-                    ? DateFormat('yyyy-MM-dd').format(r.endDate!)
-                    : s;
-                return dateKey.compareTo(s) >= 0 && dateKey.compareTo(e) <= 0;
-              }).toList();
-
-              return GestureDetector(
-                onTap: (records.isEmpty && status.isEmpty && dayRequests.isEmpty)
-                    ? null
-                    : () => _showDayDetail(date, records, status, dayRequests),
-                child: Container(
-                  margin: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(6),
-                    border: isToday
-                        ? Border.all(color: AppTheme.primaryBlue, width: 1.5)
-                        : null,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('$day',
-                          style: TextStyle(
-                            color: isWeekend
-                                ? context.colors.textMuted
-                                : context.colors.textPrimary,
-                            fontWeight:
-                                isToday ? FontWeight.w700 : FontWeight.w400,
-                            fontSize: 13,
-                          )),
-                      const SizedBox(height: 2),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (signIns.isNotEmpty)
-                            Container(
-                                width: 5,
-                                height: 5,
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 1),
-                                decoration: const BoxDecoration(
-                                    color: AppTheme.accentGreen,
-                                    shape: BoxShape.circle)),
-                          if (signOuts.isNotEmpty)
-                            Container(
-                                width: 5,
-                                height: 5,
-                                margin:
-                                    const EdgeInsets.symmetric(horizontal: 1),
-                                decoration: const BoxDecoration(
-                                    color: AppTheme.checkOutRed,
-                                    shape: BoxShape.circle)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        _buildLegend(),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  Widget _buildMonthSelector() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            icon:
-                Icon(Icons.chevron_left, color: context.colors.textSecondary),
-            onPressed: () => setState(() {
-              _selectedMonth =
-                  DateTime(_selectedMonth.year, _selectedMonth.month - 1);
-            }),
-          ),
-          Text(
-            DateFormat('MMMM yyyy', S.locale.languageCode).format(_selectedMonth),
-            style: TextStyle(
-                color: context.colors.textPrimary,
-                fontWeight: FontWeight.w600,
-                fontSize: 16),
-          ),
-          IconButton(
-            icon:
-                Icon(Icons.chevron_right, color: context.colors.textSecondary),
-            onPressed: () => setState(() {
-              _selectedMonth =
-                  DateTime(_selectedMonth.year, _selectedMonth.month + 1);
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLegend() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _legendDot(AppTheme.accentGreen, S.signIn),
-          _legendDot(AppTheme.checkOutRed, S.signOut),
-          _legendDot(AppTheme.primaryBlue.withValues(alpha: 0.5), S.vacation),
-          _legendDot(
-              context.colors.textMuted.withValues(alpha: 0.5), S.weekend),
-        ],
-      ),
-    );
-  }
-
-  Widget _legendDot(Color color, String label) {
-    return Row(
-      children: [
-        Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(label,
-            style: TextStyle(color: context.colors.textMuted, fontSize: 10)),
-      ],
-    );
+    final dayRequests = _employeeRequests.where((r) {
+      if (r.startDate == null) return false;
+      final s = DateFormat('yyyy-MM-dd').format(r.startDate!);
+      final e = r.endDate != null
+          ? DateFormat('yyyy-MM-dd').format(r.endDate!)
+          : s;
+      return dateKey.compareTo(s) >= 0 && dateKey.compareTo(e) <= 0;
+    }).toList();
+    // An explicit status override (vacation/absent/holiday) supersedes any
+    // punches for the day — don't list attend/leave times alongside it, or the
+    // detail contradicts the calendar (data-conflict fix).
+    final isOverride =
+        status == 'vacation' || status == 'absent' || status == 'holiday';
+    final shownRecords = isOverride ? <AttendanceRecord>[] : records;
+    if (shownRecords.isEmpty && status.isEmpty && dayRequests.isEmpty) return;
+    _showDayDetail(date, shownRecords, status, dayRequests);
   }
 
   void _showDayDetail(
@@ -685,7 +532,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             ],
             const SizedBox(height: 12),
             // Sign-in / Sign-out records
-            if (records.isEmpty && dayRequests.isEmpty)
+            if (records.isEmpty && dayRequests.isEmpty && status.isEmpty)
               Text(S.noRecordsForThisDay,
                   style: TextStyle(color: context.colors.textSecondary))
             else ...[  

@@ -14,7 +14,7 @@ class S {
   static String _t(String en, String ar) => isArabic ? ar : en;
 
   // ── Common ──
-  static String get appName => _t('Sobek', 'سوبك');
+  static String get appName => _t('Inukta', 'إنكتا');
   static String get cancel => _t('Cancel', 'إلغاء');
   static String get save => _t('Save', 'حفظ');
   static String get submit => _t('Submit', 'إرسال');
@@ -368,10 +368,18 @@ class S {
   static String get attachments => _t('Attachments', 'المرفقات');
   static String get completionAttachments =>
       _t('Completion Attachments', 'مرفقات الإكمال');
+  static String get failedToOpenAttachment =>
+      _t('Could not open the attachment', 'تعذر فتح المرفق');
+  static String get blinkToVerify =>
+      _t('Blink to confirm you\'re really there', 'ارمش لتأكيد وجودك الفعلي');
+  static String get livenessConfirmed =>
+      _t('Verified — you can capture now', 'تم التحقق — يمكنك الالتقاط الآن');
   static String get addComment => _t('Add Comment', 'إضافة تعليق');
   static String get taskFrom => _t('Task From', 'مهمة من');
   static String get createdAt => _t('Created At', 'أنشئت في');
   static String get reviewedBy => _t('Reviewed By', 'تمت المراجعة بواسطة');
+  static String get reviewedAtLabel =>
+      _t('Reviewed At', 'وقت المراجعة');
   static String get completed => _t('Completed', 'مكتمل');
   static String get failed => _t('Failed', 'فاشل');
   static String get comment => _t('Comment…', 'تعليق…');
@@ -391,6 +399,9 @@ class S {
   static String get appraisalCycles => _t('Appraisal Cycles', 'دورات التقييم');
   static String get noAppraisalCycles =>
       _t('No appraisal cycles', 'لا توجد دورات تقييم');
+  static String get noActiveCycleNotice => _t(
+      'No active appraisal cycle. The branch admin must start a cycle before evaluations can be made.',
+      'لا توجد دورة تقييم نشطة. يجب على مسؤول الفرع بدء دورة قبل إجراء التقييمات.');
   static String get startCycle => _t('Start Cycle', 'بدء دورة');
   static String get closeCycle => _t('Close Cycle', 'إغلاق الدورة');
   static String get closeCycleConfirm =>
@@ -620,12 +631,14 @@ class S {
     return 'No $status requests';
   }
   static String employeeCountLabel(int n) => _t('$n employees', '$n موظفين');
+  // #13/#15 — payslip/appraisal pickers list files per person, not employees.
+  static String fileCountLabel(int n) => _t('$n files', '$n ملفات');
   static String deleteConfirmMessage(String name) => _t('Delete "$name"? This cannot be undone.', 'حذف "$name"؟ لا يمكن التراجع عن هذا.');
   static String holdConfirmMessage(String name) => _t('Put ${name}\'s account on hold? They will not be able to log in.', 'تعليق حساب $name؟ لن يتمكنوا من تسجيل الدخول.');
   static String unholdConfirmMessage(String name) => _t('Remove ${name}\'s account from hold? They will be able to log in again.', 'إلغاء تعليق حساب $name؟ سيتمكنون من تسجيل الدخول مرة أخرى.');
 
   // ── Payslips extra2 ──
-  static String get paySlipTitle => _t('Sobek — Pay Slip', 'سوبك — كشف الراتب');
+  static String get paySlipTitle => _t('Inukta — Pay Slip', 'إنكتا — كشف الراتب');
   static String get paymentDateLabel => _t('Payment Date', 'تاريخ الدفع');
   static String get paidLabel => _t('Paid', 'مدفوع');
   static String get noteLabel => _t('Note', 'ملاحظة');

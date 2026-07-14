@@ -58,14 +58,16 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
           : null;
       List<Employee> employees = await ApiService().getAllEmployees(branchId: branchId);
       // Role restrictions:
-      //  - HR cannot evaluate themselves or the branch admin
-      //  - Branch admin cannot evaluate themselves
+      //  - HR cannot evaluate themselves, the branch admin, or another HR (#14:
+      //    HR is only evaluated by the branch admin — peers are the same level)
+      //  - Branch admin cannot evaluate themselves (#15)
       //  - Nobody can evaluate the super admin
       if (me != null) {
         employees = employees.where((e) {
           if (e.id == me.id) return false;
           if (e.role == UserRole.superAdmin) return false;
           if (me.role == UserRole.hr && e.role == UserRole.branchAdmin) return false;
+          if (me.role == UserRole.hr && e.role == UserRole.hr) return false;
           return true;
         }).toList();
       }
