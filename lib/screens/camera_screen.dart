@@ -103,13 +103,13 @@ class _CameraScreenState extends State<CameraScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          // Liveness guidance (#19): ask for a blink before
-                          // the shutter unlocks.
+                          // Liveness guidance (#19): randomized challenges
+                          // must be completed before the shutter unlocks.
                           live
                               ? S.livenessConfirmed
                               : provider.livenessState == LivenessState.noFace
                                   ? S.positionFaceInFrame
-                                  : S.blinkToVerify,
+                                  : '(${provider.livenessChallengeNumber}/${provider.livenessChallengeCount}) ${provider.livenessChallenge == LivenessChallenge.turnHead ? S.turnHeadToVerify : provider.livenessChallenge == LivenessChallenge.blink ? S.blinkToVerify : S.lookStraightToFinish}',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: live

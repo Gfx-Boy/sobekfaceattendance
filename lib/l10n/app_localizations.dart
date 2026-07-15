@@ -372,6 +372,11 @@ class S {
       _t('Could not open the attachment', 'تعذر فتح المرفق');
   static String get blinkToVerify =>
       _t('Blink to confirm you\'re really there', 'ارمش لتأكيد وجودك الفعلي');
+  static String get turnHeadToVerify => _t(
+      'Slowly turn your head left, then right',
+      'أدر رأسك ببطء إلى اليسار ثم اليمين');
+  static String get lookStraightToFinish =>
+      _t('Now look straight at the camera', 'الآن انظر مباشرة إلى الكاميرا');
   static String get livenessConfirmed =>
       _t('Verified — you can capture now', 'تم التحقق — يمكنك الالتقاط الآن');
   static String get addComment => _t('Add Comment', 'إضافة تعليق');

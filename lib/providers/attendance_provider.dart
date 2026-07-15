@@ -61,6 +61,9 @@ class AttendanceProvider extends ChangeNotifier {
   LivenessState _livenessState = LivenessState.noFace;
   LivenessState get livenessState => _livenessState;
   bool get livenessPassed => _livenessState == LivenessState.passed;
+  LivenessChallenge? get livenessChallenge => _liveness?.currentChallenge;
+  int get livenessChallengeNumber => _liveness?.challengeNumber ?? 1;
+  int get livenessChallengeCount => _liveness?.challengeCount ?? 1;
 
   /// Watches the preview stream until the user blinks. Capture stays locked
   /// until then, so a photo/screen of the right face cannot check in.
@@ -77,12 +80,16 @@ class AttendanceProvider extends ChangeNotifier {
 
     await _cameraService.startImageStream((image) async {
       if (_liveness == null || _liveness!.passed) return;
+      final prevChallenge = _liveness!.currentChallenge;
       final state = await _liveness!.processFrame(
         image,
         camera,
         controller.value.deviceOrientation,
       );
-      if (state != _livenessState) {
+      // The instruction also changes when one challenge completes and the
+      // next begins, even though the state stays `challenge`.
+      if (state != _livenessState ||
+          _liveness!.currentChallenge != prevChallenge) {
         _livenessState = state;
         notifyListeners();
         if (state == LivenessState.passed) {
