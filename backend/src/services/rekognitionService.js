@@ -2,6 +2,7 @@ const {
   RekognitionClient,
   CompareFacesCommand,
   DetectFacesCommand,
+  DetectLabelsCommand,
 } = require('@aws-sdk/client-rekognition');
 const fs = require('fs');
 
@@ -51,6 +52,71 @@ async function compareFaces(sourceImagePath, targetS3Bucket, targetS3Key) {
   };
 }
 
+// Objects that mean "this face is being shown ON something" when the face's
+// bounding box falls inside theirs.
+const SPOOF_DEVICE_LABELS = new Set([
+  'Cell Phone',
+  'Mobile Phone',
+  'Phone',
+  'Monitor',
+  'Screen',
+  'TV',
+  'Television',
+  'Laptop',
+  'Computer',
+  'Tablet Computer',
+  'Computer Monitor',
+  'LCD Screen',
+  'Photo Frame',
+]);
+
+/** Fraction of the face box covered by the device box (0..1). */
+function faceCoveredByDevice(face, device) {
+  const ix = Math.max(
+    0,
+    Math.min(face.Left + face.Width, device.Left + device.Width) -
+      Math.max(face.Left, device.Left)
+  );
+  const iy = Math.max(
+    0,
+    Math.min(face.Top + face.Height, device.Top + device.Height) -
+      Math.max(face.Top, device.Top)
+  );
+  const faceArea = face.Width * face.Height;
+  return faceArea > 0 ? (ix * iy) / faceArea : 0;
+}
+
+/**
+ * Screen/photo spoof check: DetectLabels finds phones/monitors/TVs WITH
+ * bounding boxes. If the face sits inside such a device, the "person" is a
+ * picture on a screen. A device elsewhere in the frame (e.g. a monitor in the
+ * background of a real office) does NOT trigger this.
+ */
+async function detectScreenSpoof(imageBytes, faceBox) {
+  const response = await rekognitionClient.send(
+    new DetectLabelsCommand({
+      Image: { Bytes: imageBytes },
+      MaxLabels: 35,
+      MinConfidence: 60,
+    })
+  );
+
+  for (const label of response.Labels || []) {
+    if (!SPOOF_DEVICE_LABELS.has(label.Name)) continue;
+    for (const inst of label.Instances || []) {
+      if (!inst.BoundingBox) continue;
+      const covered = faceCoveredByDevice(faceBox, inst.BoundingBox);
+      if (covered > 0.5) {
+        console.log(
+          `Screen spoof detected: face ${Math.round(covered * 100)}% inside a "${label.Name}" (conf ${label.Confidence?.toFixed(1)})`
+        );
+        return { spoof: true, device: label.Name };
+      }
+    }
+  }
+  return { spoof: false };
+}
+
 /**
  * Detect faces in an image and check for liveness indicators.
  * Uses face detail attributes like eye open, mouth open, pose quality.
@@ -82,6 +148,28 @@ async function detectLiveness(imagePath) {
   }
 
   const face = response.FaceDetails[0];
+
+  // Screen/photo-of-photo rejection (client point: "check if the picture is
+  // from a screen"). Runs before the quality scoring — a crisp photo of a
+  // phone screen scores well on sharpness/brightness, so quality alone never
+  // catches it. Fail-open on API errors: a DetectLabels outage must not lock
+  // everyone out of attendance.
+  try {
+    const spoofCheck = await detectScreenSpoof(
+      imageBytes,
+      face.BoundingBox || { Left: 0, Top: 0, Width: 1, Height: 1 }
+    );
+    if (spoofCheck.spoof) {
+      return {
+        isLive: false,
+        spoofDevice: spoofCheck.device,
+        message:
+          'This looks like a picture shown on a screen or another device, not a live face. Please use your own camera directly.',
+      };
+    }
+  } catch (e) {
+    console.error('Screen spoof check failed (continuing):', e.message);
+  }
 
   const confidence = face.Confidence || 0;
   const eyesOpenValue = face.EyesOpen?.Value ?? false;
