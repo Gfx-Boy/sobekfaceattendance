@@ -5,7 +5,6 @@ import '../models/attendance_record.dart';
 import '../models/verification_result.dart';
 import '../services/api_service.dart';
 import '../services/camera_service.dart';
-import '../services/liveness_service.dart';
 import '../services/location_service.dart';
 
 enum AttendanceStep {
@@ -54,51 +53,6 @@ class AttendanceProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   CameraService get cameraService => _cameraService;
   String get attendanceType => _attendanceType;
-
-  // ---------- Liveness (#19 anti-spoofing) ----------
-
-  LivenessDetector? _liveness;
-  LivenessState _livenessState = LivenessState.noFace;
-  LivenessState get livenessState => _livenessState;
-  bool get livenessPassed => _livenessState == LivenessState.passed;
-  LivenessChallenge? get livenessChallenge => _liveness?.currentChallenge;
-  int get livenessChallengeNumber => _liveness?.challengeNumber ?? 1;
-  int get livenessChallengeCount => _liveness?.challengeCount ?? 1;
-
-  /// Watches the preview stream until the user blinks. Capture stays locked
-  /// until then, so a photo/screen of the right face cannot check in.
-  Future<void> startLivenessCheck() async {
-    if (!_cameraService.isInitialized) return;
-    _liveness ??= LivenessDetector();
-    _liveness!.reset();
-    _livenessState = LivenessState.noFace;
-    notifyListeners();
-
-    final camera = _cameraService.activeCamera;
-    final controller = _cameraService.controller;
-    if (camera == null || controller == null) return;
-
-    await _cameraService.startImageStream((image) async {
-      if (_liveness == null || _liveness!.passed) return;
-      final prevChallenge = _liveness!.currentChallenge;
-      final state = await _liveness!.processFrame(
-        image,
-        camera,
-        controller.value.deviceOrientation,
-      );
-      // The instruction also changes when one challenge completes and the
-      // next begins, even though the state stays `challenge`.
-      if (state != _livenessState ||
-          _liveness!.currentChallenge != prevChallenge) {
-        _livenessState = state;
-        notifyListeners();
-        if (state == LivenessState.passed) {
-          // Frames are no longer needed once life is proven.
-          await _cameraService.stopImageStream();
-        }
-      }
-    });
-  }
 
   void setAttendanceType(String type) {
     _attendanceType = type;
@@ -150,9 +104,6 @@ class AttendanceProvider extends ChangeNotifier {
 
       _currentStep = AttendanceStep.cameraReady;
       notifyListeners();
-
-      // Capture stays locked until the user proves they're live (#19).
-      await startLivenessCheck();
     } catch (e) {
       _error = e.toString();
       _currentStep = AttendanceStep.failed;
@@ -161,7 +112,6 @@ class AttendanceProvider extends ChangeNotifier {
   }
 
   Future<void> captureImage() async {
-    if (!livenessPassed) return; // UI gates this too; belt and suspenders
     try {
       _currentStep = AttendanceStep.capturing;
       notifyListeners();
@@ -272,15 +222,11 @@ class AttendanceProvider extends ChangeNotifier {
     _verificationResult = null;
     _error = null;
     _locationException = null;
-    _livenessState = LivenessState.noFace;
-    _liveness?.reset();
-    _cameraService.stopImageStream();
     notifyListeners();
   }
 
   @override
   void dispose() {
-    _liveness?.dispose();
     _cameraService.dispose();
     super.dispose();
   }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/attendance_provider.dart';
-import '../services/liveness_service.dart';
 import '../l10n/app_localizations.dart';
 
 class CameraScreen extends StatefulWidget {
@@ -63,24 +62,21 @@ class _CameraScreenState extends State<CameraScreen> {
               );
             }
 
-            final live = provider.livenessPassed;
             return Stack(
               children: [
                 // Camera preview
                 Positioned.fill(
                   child: cameraController.buildPreview(),
                 ),
-                // Face guide overlay — turns green once liveness is proven.
+                // Face guide overlay
                 Center(
                   child: Container(
                     width: 260,
                     height: 340,
                     decoration: BoxDecoration(
                       border: Border.all(
-                        color: live
-                            ? const Color(0xFF34C759)
-                            : Colors.white.withValues(alpha: 0.6),
-                        width: live ? 3 : 2,
+                        color: Colors.white.withValues(alpha: 0.6),
+                        width: 2,
                       ),
                       borderRadius: BorderRadius.circular(130),
                     ),
@@ -103,18 +99,9 @@ class _CameraScreenState extends State<CameraScreen> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          // Liveness guidance (#19): randomized challenges
-                          // must be completed before the shutter unlocks.
-                          live
-                              ? S.livenessConfirmed
-                              : provider.livenessState == LivenessState.noFace
-                                  ? S.positionFaceInFrame
-                                  : '(${provider.livenessChallengeNumber}/${provider.livenessChallengeCount}) ${provider.livenessChallenge == LivenessChallenge.turnHead ? S.turnHeadToVerify : provider.livenessChallenge == LivenessChallenge.blink ? S.blinkToVerify : S.lookStraightToFinish}',
-                          textAlign: TextAlign.center,
+                          S.positionFaceInFrame,
                           style: TextStyle(
-                            color: live
-                                ? const Color(0xFF34C759)
-                                : Colors.white,
+                            color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.w500,
                           ),
@@ -143,32 +130,26 @@ class _CameraScreenState extends State<CameraScreen> {
                   right: 0,
                   child: Center(
                     child: GestureDetector(
-                      onTap: provider.currentStep ==
-                                  AttendanceStep.cameraReady &&
-                              live
+                      onTap: provider.currentStep == AttendanceStep.cameraReady
                           ? () => provider.captureImage()
                           : null,
-                      child: Opacity(
-                        // Locked until the blink check passes (#19).
-                        opacity: live ? 1.0 : 0.35,
+                      child: Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 4),
+                        ),
                         child: Container(
-                          width: 76,
-                          height: 76,
-                          decoration: BoxDecoration(
+                          margin: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 4),
+                            color: Colors.white,
                           ),
-                          child: Container(
-                            margin: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
-                            ),
-                            child: Icon(
-                              live ? Icons.camera_alt : Icons.lock_outline,
-                              color: Colors.black87,
-                              size: 30,
-                            ),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            color: Colors.black87,
+                            size: 30,
                           ),
                         ),
                       ),
