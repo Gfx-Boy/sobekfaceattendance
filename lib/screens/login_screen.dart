@@ -112,23 +112,24 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const SizedBox(height: 60),
 
-                // Logo
+                // Logo — the INUKTA brand image (same one used for the app
+                // icon), clipped to the trimmed mark area so it reads large.
                 Center(
                   child: Container(
-                    width: 100,
-                    height: 100,
+                    width: 150,
+                    height: 150,
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      color: Colors.white,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.3),
+                        color: AppTheme.primaryBlue.withValues(alpha: 0.25),
                         width: 2,
                       ),
                     ),
-                    child: const Icon(
-                      Icons.fingerprint,
-                      size: 52,
-                      color: AppTheme.primaryBlue,
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.asset(
+                      'assets/icon/icon.png',
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ),
