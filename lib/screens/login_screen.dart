@@ -102,6 +102,8 @@ class _LoginScreenState extends State<LoginScreen> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
+      // White background so the logo image blends in seamlessly (client ask).
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -112,21 +114,12 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const SizedBox(height: 60),
 
-                // Logo — the INUKTA brand image (same one used for the app
-                // icon), clipped to the trimmed mark area so it reads large.
+                // Logo — the INUKTA brand image on the white background, no
+                // circle/border so it blends straight into the page.
                 Center(
-                  child: Container(
-                    width: 150,
-                    height: 150,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppTheme.primaryBlue.withValues(alpha: 0.25),
-                        width: 2,
-                      ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
+                  child: SizedBox(
+                    width: 180,
+                    height: 180,
                     child: Image.asset(
                       'assets/icon/icon.png',
                       fit: BoxFit.cover,
