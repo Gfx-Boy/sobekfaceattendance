@@ -743,9 +743,19 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                 row(S.earlyOutCount,
                     '${p.breakdown!['early_out_count'] ?? 0}',
                     color: AppTheme.checkOutRed),
+                row(S.incompleteCount,
+                    '${p.breakdown!['incomplete_count'] ?? 0}',
+                    color: AppTheme.warningAmber),
+                if ((p.breakdown!['excused_days'] ?? 0) != 0)
+                  row(S.excusedDays, '${p.breakdown!['excused_days']}',
+                      color: AppTheme.primaryBlue),
                 row(S.overtimeMinutes,
                     '${p.breakdown!['overtime_minutes'] ?? 0}',
                     color: AppTheme.primaryBlue),
+                if (p.breakdown!['appraisal_score'] != null)
+                  row(S.appraisalScore,
+                      '${p.breakdown!['appraisal_score']}%',
+                      color: AppTheme.accentGreen),
               ],
               if (p.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -763,6 +773,37 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+          // Recompute from the latest attendance — the payslip updates in
+          // place instead of freezing at its first generation (#5 r3).
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await ApiService().generatePayslip(
+                  employeeId: p.employeeId,
+                  period: p.period,
+                  save: true,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(S.payslipCreated),
+                        backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+                _refreshAfterCreate();
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text('$e'),
+                        backgroundColor: AppTheme.checkOutRed),
+                  );
+                }
+              }
+            },
+            child: Text(S.regenerate),
+          ),
         ],
       ),
     );
@@ -1014,7 +1055,12 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         row(S.absentDays, '${bd['absent_days'] ?? 0}'),
         row(S.lateCount, '${bd['late_count'] ?? 0}'),
         row(S.earlyOutCount, '${bd['early_out_count'] ?? 0}'),
+        row(S.incompleteCount, '${bd['incomplete_count'] ?? 0}'),
+        if ((bd['excused_days'] ?? 0) != 0)
+          row(S.excusedDays, '${bd['excused_days']}'),
         row(S.overtimeMinutes, '${bd['overtime_minutes'] ?? 0}'),
+        if (bd['appraisal_score'] != null)
+          row(S.appraisalScore, '${bd['appraisal_score']}%'),
       ],
     );
   }

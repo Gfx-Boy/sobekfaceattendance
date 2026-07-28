@@ -66,6 +66,10 @@ class AppNotification {
       case 'attendance_alert':
         return NotificationType.attendanceAlert;
       case 'hr_notification':
+      case 'employee_created':
+      case 'employee_deleted':
+      case 'employee_held':
+      case 'employee_unheld':
         return NotificationType.hrNotification;
       case 'system_alert':
         return NotificationType.systemAlert;

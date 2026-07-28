@@ -53,7 +53,8 @@ async function compareFaces(sourceImagePath, targetS3Bucket, targetS3Key) {
 }
 
 // Objects that mean "this face is being shown ON something" when the face's
-// bounding box falls inside theirs.
+// bounding box falls inside theirs. Covers screens AND printed media
+// (paper photo, poster, ID card) per the client's spoof report (#3 r3).
 const SPOOF_DEVICE_LABELS = new Set([
   'Cell Phone',
   'Mobile Phone',
@@ -68,6 +69,18 @@ const SPOOF_DEVICE_LABELS = new Set([
   'Computer Monitor',
   'LCD Screen',
   'Photo Frame',
+  // Printed media
+  'Poster',
+  'Advertisement',
+  'Photograph',
+  'Painting',
+  'Magazine',
+  'Newspaper',
+  'Id Cards',
+  'Card',
+  'Passport',
+  'Document',
+  'Picture Frame',
 ]);
 
 /** Fraction of the face box covered by the device box (0..1). */
@@ -162,9 +175,10 @@ async function detectLiveness(imagePath) {
     if (spoofCheck.spoof) {
       return {
         isLive: false,
+        spoof: true,
         spoofDevice: spoofCheck.device,
-        message:
-          'This looks like a picture shown on a screen or another device, not a live face. Please use your own camera directly.',
+        // Exact wording requested by the client (#3 r3).
+        message: 'Alert: the image is not live',
       };
     }
   } catch (e) {

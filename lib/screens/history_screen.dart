@@ -104,6 +104,9 @@ class _AttendanceCard extends StatelessWidget {
           'holiday' => S.holiday,
           'absent' => S.absent,
           'attend' => S.signIn,
+          'permission' => S.permission,
+          'business_mission' => S.businessMission,
+          'sick' => S.sickLeave,
           _ => s ?? S.dayStatus,
         };
     final typeLabel = isDayStatus
@@ -114,11 +117,14 @@ class _AttendanceCard extends StatelessWidget {
             'break_end' => S.breakEnd,
             _ => S.signIn,
           };
+    // Same color vocabulary as the attendance calendar / HR day-status grid.
     final Color typeColor = isDayStatus
         ? switch (record.dayStatus) {
-            'vacation' => AppTheme.primaryBlue,
-            'holiday' => AppTheme.warningAmber,
+            'vacation' => Colors.orange,
+            'holiday' => Colors.teal,
             'absent' => AppTheme.checkOutRed,
+            'sick' => Colors.purple,
+            'business_mission' => AppTheme.primaryBlue,
             _ => AppTheme.accentGreen,
           }
         : (isBreak

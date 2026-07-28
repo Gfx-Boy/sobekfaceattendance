@@ -9,7 +9,7 @@ const branchKey = (id) => `data/branches/branch-${id}.json`;
 // POST /api/branches — create a branch
 router.post('/', async (req, res) => {
   try {
-    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, weekend_days } = req.body;
+    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, bonus_rate, weekend_days } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Branch name is required' });
@@ -45,6 +45,7 @@ router.post('/', async (req, res) => {
       deduction_late: deduction_late || 0,
       deduction_early_out: deduction_early_out || 0,
       deduction_absent: deduction_absent || 0,
+      bonus_rate: bonus_rate !== undefined ? bonus_rate : 10,
       employee_count: 0,
       created_at: new Date().toISOString(),
     };
@@ -130,7 +131,7 @@ router.put('/:id', async (req, res) => {
     const branch = await getJSON(branchKey(req.params.id));
     if (!branch) return res.status(404).json({ error: 'Branch not found' });
 
-    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, weekend_days } = req.body;
+    const { name, address, admin_id, admin_name, is_active, status, validity_start, validity_end, working_hours_start, working_hours_end, break_duration_minutes, working_days, deduction_late, deduction_early_out, deduction_absent, bonus_rate, weekend_days } = req.body;
 
     // If renaming, check uniqueness
     if (name !== undefined && name.toLowerCase() !== (branch.name || '').toLowerCase()) {
@@ -160,6 +161,7 @@ router.put('/:id', async (req, res) => {
     if (deduction_late !== undefined) branch.deduction_late = deduction_late;
     if (deduction_early_out !== undefined) branch.deduction_early_out = deduction_early_out;
     if (deduction_absent !== undefined) branch.deduction_absent = deduction_absent;
+    if (bonus_rate !== undefined) branch.bonus_rate = bonus_rate;
     if (weekend_days !== undefined) branch.weekend_days = weekend_days;
     branch.updated_at = new Date().toISOString();
     console.log(`[branches] PUT ${req.params.id} saved working_days=${JSON.stringify(branch.working_days)} deductions=${branch.deduction_late}/${branch.deduction_early_out}/${branch.deduction_absent}`);

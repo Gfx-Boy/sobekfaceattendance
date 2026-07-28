@@ -355,6 +355,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
   String _friendlyError(String? raw) {
     if (raw == null || raw.isEmpty) return S.verificationFailed;
     final lower = raw.toLowerCase();
+    // Spoofed capture (photo of a screen / printed paper / card) — surface the
+    // exact alert the client specified, localized (#3 r3).
+    if (lower.contains('not live') || lower.contains('spoof')) {
+      return S.imageNotLive;
+    }
     if (lower.contains('timeout') || lower.contains('timed out')) {
       return S.errorTimeout;
     }

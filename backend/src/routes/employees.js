@@ -119,6 +119,34 @@ async function notifyAdminsOfDeletedEmployee(deletedEmployee, actor) {
   }
 }
 
+// Notify relevant admins when an employee is put on hold / released from hold (#9 round 3)
+async function notifyAdminsOfHeldEmployee(employee, actor, isOnHold) {
+  try {
+    const by = actor?.name ? ` by ${actor.name}` : '';
+    const keys = await listKeys('data/employees/');
+    for (const key of keys) {
+      if (!key.endsWith('.json') || key.includes('index')) continue;
+      const emp = await getJSON(key);
+      if (!emp || emp.id === employee.id) continue;
+      if (actor && emp.id === actor.id) continue; // the actor already knows
+      const isSuperAdmin = emp.role === 'superAdmin';
+      const isSameBranchAdmin =
+        (emp.role === 'branchAdmin' || emp.role === 'hr') &&
+        employee.branch_id &&
+        emp.branch_id === employee.branch_id;
+      if (!isSuperAdmin && !isSameBranchAdmin) continue;
+      notificationRoutes.sendPushToEmployee(
+        emp.id,
+        isOnHold ? 'Employee Put On Hold' : 'Employee Hold Removed',
+        `${employee.name} (${employee.role})${employee.branch_name ? ' of ' + employee.branch_name : ''} was ${isOnHold ? 'put on hold' : 'released from hold'}${by}`,
+        { type: isOnHold ? 'employee_held' : 'employee_unheld', employee_id: employee.id }
+      ).catch(e => console.error('Push failed:', e.message));
+    }
+  } catch (e) {
+    console.error('Failed to notify admins of held employee:', e.message);
+  }
+}
+
 // Read/write the email→id index with a short in-memory cache to reduce S3 calls.
 const INDEX_CACHE_TTL_MS = parseInt(process.env.EMPLOYEE_INDEX_CACHE_TTL_MS || '30000', 10);
 let cachedIndex = null;
@@ -659,6 +687,7 @@ router.put('/:id', async (req, res) => {
     }
 
     const updates = req.body;
+    const wasOnHold = emp.is_on_hold === true;
     const allowedFields = ['name', 'department', 'role', 'employee_type', 'branch_id', 'branch_name', 'address', 'phone', 'position', 'allowed_latitude', 'allowed_longitude', 'allowed_radius', 'is_on_hold', 'basic_salary'];
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
@@ -673,6 +702,13 @@ router.put('/:id', async (req, res) => {
 
     emp.updated_at = new Date().toISOString();
     await putJSON(employeeKey(req.params.id), emp);
+
+    const nowOnHold = emp.is_on_hold === true;
+    if (updates.is_on_hold !== undefined && nowOnHold !== wasOnHold) {
+      actorFromReq(req)
+        .then((actor) => notifyAdminsOfHeldEmployee(emp, actor, nowOnHold))
+        .catch(() => {});
+    }
 
     res.json({
       id: emp.id,

@@ -8,6 +8,7 @@ const router = express.Router();
 const payslipKey = (id) => `data/payslips/payslip-${id}.json`;
 const payslipsByEmployeePrefix = (empId) => `data/payslips-by-employee/${empId}/`;
 const payslipPointerKey = (empId, id) => `data/payslips-by-employee/${empId}/payslip-${id}.json`;
+const appraisalsByEmployeePrefix = (empId) => `data/appraisals-by-employee/${empId}/`;
 
 // POST /api/payslips — create a payslip (admin/HR)
 router.post('/', async (req, res) => {
@@ -91,8 +92,31 @@ router.post('/generate', async (req, res) => {
     const workingDays = branch?.working_days ||
       ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
+    // Branch working hours are wall-clock local time, but timestamps are
+    // stored in UTC and this server usually runs in UTC — comparing
+    // `getHours()` directly flags late/early against the wrong clock (#22).
+    // PAYROLL_TZ_OFFSET_MINUTES (e.g. 180 for UTC+3) wins; otherwise fall
+    // back to the system settings' utc_offset; otherwise UTC.
+    let tzOffsetMin = parseInt(process.env.PAYROLL_TZ_OFFSET_MINUTES || '', 10);
+    if (!Number.isFinite(tzOffsetMin)) {
+      try {
+        const sysSettings = await getJSON('data/system-settings.json');
+        const off = Number(sysSettings?.utc_offset);
+        tzOffsetMin = Number.isFinite(off) ? off * 60 : 180;
+      } catch (_) {
+        tzOffsetMin = 180; // sensible default for the client's region (UTC+3)
+      }
+    }
+    const shiftedDate = (iso) => new Date(new Date(iso).getTime() + tzOffsetMin * 60000);
+    const localMinutesOfDay = (iso) => {
+      const s = shiftedDate(iso);
+      return s.getUTCHours() * 60 + s.getUTCMinutes();
+    };
+    // Local calendar date of a UTC timestamp — an evening punch in UTC+3
+    // belongs to the local day, not the UTC one.
+    const localDateStr = (iso) => shiftedDate(iso).toISOString().slice(0, 10);
+
     const records = await listJSON(`data/attendance/${employee_id}/`);
-    const [py, pm] = period.split('-').map(Number);
     const inPeriod = records.filter(r => {
       // A day_status record applies to its `date`, not to the moment it was
       // created — a vacation approved in May for June days must land in June,
@@ -100,18 +124,23 @@ router.post('/generate', async (req, res) => {
       if (r.type === 'day_status' && r.date) return r.date.startsWith(period);
       const t = r.timestamp || r.date;
       if (!t) return false;
-      const d = new Date(t);
-      return d.getFullYear() === py && d.getMonth() + 1 === pm;
+      return localDateStr(t).startsWith(period);
     });
+    // S3 listing order is lexicographic over random uuids — sort punches
+    // chronologically or "first sign-in / last sign-out" picks random ones.
+    inPeriod.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
 
-    // Bucket by date
+    // Bucket by (local) date
     const byDate = {};
     for (const r of inPeriod) {
-      const d = (r.date || (r.timestamp || '').slice(0, 10));
+      const d = r.type === 'day_status'
+        ? (r.date || '')
+        : (r.timestamp ? localDateStr(r.timestamp) : (r.date || ''));
       if (!d) continue;
       (byDate[d] = byDate[d] || []).push(r);
     }
 
+    const [py, pm] = period.split('-').map(Number);
     const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const daysInMonth = new Date(py, pm, 0).getDate();
     const toMin = (hhmm) => {
@@ -121,39 +150,34 @@ router.post('/generate', async (req, res) => {
     const startMin = toMin(workStart);
     const endMin = toMin(workEnd);
 
-    // Branch working hours are wall-clock local time, but timestamps are
-    // stored in UTC and this server usually runs in UTC — comparing
-    // `getHours()` directly flags late/early against the wrong clock (#22).
-    // PAYROLL_TZ_OFFSET_MINUTES (e.g. 180 for UTC+3) fixes the conversion;
-    // without it we fall back to the server's local timezone.
-    const tzOffsetMin = parseInt(process.env.PAYROLL_TZ_OFFSET_MINUTES || '', 10);
-    const localMinutesOfDay = (iso) => {
-      const d = new Date(iso);
-      if (Number.isFinite(tzOffsetMin)) {
-        const shifted = new Date(d.getTime() + tzOffsetMin * 60000);
-        return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
-      }
-      return d.getHours() * 60 + d.getMinutes();
-    };
-
     let lateCount = 0, earlyCount = 0, absentCount = 0,
         vacationCount = 0, holidayCount = 0, presentCount = 0,
-        incompleteCount = 0, overtimeMinutes = 0;
-    const todayStr = new Date().toISOString().slice(0, 10);
+        excusedCount = 0, incompleteCount = 0, overtimeMinutes = 0,
+        lateMinutes = 0, earlyMinutes = 0, workingDayCount = 0;
+    const todayStr = localDateStr(new Date().toISOString());
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${py}-${String(pm).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
       const dayName = dayNames[new Date(py, pm - 1, day).getDay()];
       const isWorkDay = workingDays.includes(dayName);
+      if (isWorkDay) workingDayCount++;
+      // Days that haven't happened yet are nobody's absence — generating a
+      // payslip mid-month must not deduct the rest of the calendar (#5 r3).
+      if (dateStr > todayStr) continue;
       const recs = byDate[dateStr] || [];
-      const dayStatusRec = recs.find(r => r.type === 'day_status');
+      const dayStatusRec = [...recs].reverse().find(r => r.type === 'day_status');
       if (dayStatusRec) {
         const s = dayStatusRec.day_status;
-        if (s === 'vacation') vacationCount++;
-        else if (s === 'holiday') holidayCount++;
-        else if (s === 'absent') absentCount++;
-        else if (s === 'attend') presentCount++;
-        continue;
+        if (s === 'vacation') { vacationCount++; continue; }
+        if (s === 'holiday') { holidayCount++; continue; }
+        if (s === 'absent') { absentCount++; continue; }
+        if (s === 'attend') { presentCount++; continue; }
+        // permission / business_mission / sick: approved & excused — paid,
+        // never deducted. (They used to fall through and count as absent.)
+        if (s === 'permission' || s === 'business_mission' || s === 'sick') {
+          excusedCount++;
+          continue;
+        }
       }
       if (!isWorkDay) { holidayCount++; continue; }
 
@@ -166,43 +190,98 @@ router.post('/generate', async (req, res) => {
       presentCount++;
 
       const ciMin = localMinutesOfDay(checkIn.timestamp);
-      if (ciMin > startMin) lateCount++;
+      if (ciMin > startMin) { lateCount++; lateMinutes += ciMin - startMin; }
 
       if (checkOut) {
         const coMin = localMinutesOfDay(checkOut.timestamp);
-        if (coMin < endMin) earlyCount++;
+        if (coMin < endMin) { earlyCount++; earlyMinutes += endMin - coMin; }
         else if (coMin > endMin) overtimeMinutes += (coMin - endMin);
       } else if (dateStr < todayStr) {
         // Checked in but never checked out on a past day: an "incomplete"
-        // day, deducted at the early-out rate (#22). Today is exempt — the
-        // employee may simply still be at work.
+        // day (#22). Today is exempt — the employee may still be at work.
         incompleteCount++;
       }
     }
 
     const basic = Number(emp.basic_salary || 0);
-    const deductions =
-      lateCount * dedLate +
-      (earlyCount + incompleteCount) * dedEarly +
-      absentCount * dedAbsent;
+    // Pro-rata fallbacks so lateness/absence always costs something even when
+    // the branch's flat deduction rates were never configured (they default
+    // to 0, which silently made every payslip equal the basic salary — #5 r3).
+    const dayRate = workingDayCount > 0 ? basic / workingDayCount : 0;
+    const workdayMinutes = Math.max(endMin - startMin, 1);
+    const minuteRate = dayRate / workdayMinutes;
+    const lateDeduction = dedLate > 0 ? lateCount * dedLate : lateMinutes * minuteRate;
+    const earlyDeduction = dedEarly > 0 ? earlyCount * dedEarly : earlyMinutes * minuteRate;
+    // No check-out means the afternoon is unproven: flat rate if configured,
+    // otherwise half a day.
+    const incompleteDeduction =
+      dedEarly > 0 ? incompleteCount * dedEarly : incompleteCount * dayRate * 0.5;
+    const absentDeduction = dedAbsent > 0 ? absentCount * dedAbsent : absentCount * dayRate;
+    const deductions = lateDeduction + earlyDeduction + incompleteDeduction + absentDeduction;
     // Hourly rate based on standard 22 working days * 8 hours
     const hourlyRate = basic > 0 ? basic / (22 * 8) : 0;
     const overtimePay = (overtimeMinutes / 60) * hourlyRate * 1.5;
-    const bonuses = 0;
+
+    // Appraisal-linked bonus (#6 r3): average this period's appraisal scores
+    // (admin/HR weighted when both exist) and scale the branch bonus rate.
+    // bonus = basic × bonus_rate% × score/100. bonus_rate defaults to 10%.
+    const bonusRate = Number(branch?.bonus_rate ?? 10);
+    let appraisalScore = null;
+    try {
+      const pointers = await listJSON(appraisalsByEmployeePrefix(employee_id));
+      const appraisals = [];
+      for (const ptr of pointers) {
+        if (!ptr?.id) continue;
+        const a = await getJSON(`data/appraisals/appraisal-${ptr.id}.json`);
+        if (a && String(a.created_at || '').startsWith(period)) appraisals.push(a);
+      }
+      if (appraisals.length > 0) {
+        const admin = appraisals.filter(a => (a.evaluator_role || '').toLowerCase() !== 'hr');
+        const hr = appraisals.filter(a => (a.evaluator_role || '').toLowerCase() === 'hr');
+        const avg = (list) =>
+          list.reduce((s, a) => s + Number(a.overall_score || 0), 0) / list.length;
+        if (admin.length > 0 && hr.length > 0) {
+          let adminW = 70, hrW = 30;
+          const cycleId = appraisals.find(a => a.cycle_id)?.cycle_id;
+          if (cycleId) {
+            const cycle = await getJSON(`data/appraisal-cycles/cycle-${cycleId}.json`);
+            if (cycle) {
+              adminW = Number(cycle.admin_weight ?? 70);
+              hrW = Number(cycle.hr_weight ?? 30);
+            }
+          }
+          appraisalScore = (avg(admin) * adminW + avg(hr) * hrW) / (adminW + hrW);
+        } else {
+          appraisalScore = avg(appraisals);
+        }
+      }
+    } catch (e) {
+      console.error('Appraisal bonus lookup failed:', e.message);
+    }
+    const bonuses = appraisalScore != null && bonusRate > 0
+      ? Number((basic * (bonusRate / 100) * (appraisalScore / 100)).toFixed(2))
+      : 0;
+
     const net = basic + bonuses + overtimePay - deductions;
 
     const breakdown = {
       present_days: presentCount,
       absent_days: absentCount,
       late_count: lateCount,
+      late_minutes: lateMinutes,
       early_out_count: earlyCount,
+      early_out_minutes: earlyMinutes,
       incomplete_count: incompleteCount,
       vacation_days: vacationCount,
+      excused_days: excusedCount,
       holiday_days: holidayCount,
       overtime_minutes: overtimeMinutes,
-      deduction_late: dedLate,
-      deduction_early_out: dedEarly,
-      deduction_absent: dedAbsent,
+      deduction_late: Number(lateDeduction.toFixed(2)),
+      deduction_early_out: Number(earlyDeduction.toFixed(2)),
+      deduction_incomplete: Number(incompleteDeduction.toFixed(2)),
+      deduction_absent: Number(absentDeduction.toFixed(2)),
+      appraisal_score: appraisalScore != null ? Number(appraisalScore.toFixed(1)) : null,
+      bonus_rate: bonusRate,
     };
 
     if (!save) {
@@ -213,7 +292,7 @@ router.post('/generate', async (req, res) => {
         period,
         basic_salary: basic,
         bonuses,
-        deductions,
+        deductions: Number(deductions.toFixed(2)),
         overtime_pay: Number(overtimePay.toFixed(2)),
         net_salary: Number(net.toFixed(2)),
         branch_id: emp.branch_id || null,
@@ -221,7 +300,20 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    const id = uuidv4();
+    // Regenerating a period UPDATES the existing payslip instead of piling up
+    // duplicates — a saved slip previously froze forever, so late punches or
+    // fixed statuses never changed it and the client saw a stale payslip (#5 r3).
+    let existing = null;
+    try {
+      const pointers = await listJSON(payslipsByEmployeePrefix(employee_id));
+      for (const ptr of pointers) {
+        if (!ptr?.id) continue;
+        const p = await getJSON(payslipKey(ptr.id));
+        if (p && p.period === period) { existing = p; break; }
+      }
+    } catch (_) {}
+
+    const id = existing ? existing.id : uuidv4();
     const payslip = {
       id,
       employee_id,
@@ -229,22 +321,25 @@ router.post('/generate', async (req, res) => {
       period,
       basic_salary: basic,
       bonuses,
-      deductions,
+      deductions: Number(deductions.toFixed(2)),
       overtime_pay: Number(overtimePay.toFixed(2)),
       net_salary: Number(net.toFixed(2)),
-      payment_date: null,
+      payment_date: existing?.payment_date || null,
       notes: 'Auto-generated from attendance',
-      created_by: created_by || null,
+      created_by: created_by || existing?.created_by || null,
       branch_id: emp.branch_id || null,
       breakdown,
-      created_at: new Date().toISOString(),
+      created_at: existing?.created_at || new Date().toISOString(),
+      updated_at: existing ? new Date().toISOString() : undefined,
     };
     await putJSON(payslipKey(id), payslip);
     await putJSON(payslipPointerKey(employee_id, id), { id });
     notificationRoutes.sendPushToEmployee(
       employee_id,
-      'New Payslip Available',
-      `Your payslip for ${period} is now available`,
+      existing ? 'Payslip Updated' : 'New Payslip Available',
+      existing
+        ? `Your payslip for ${period} was recalculated`
+        : `Your payslip for ${period} is now available`,
       { type: 'payslip_created', payslip_id: id }
     ).catch(e => console.error('Push failed:', e.message));
     res.status(201).json(payslip);

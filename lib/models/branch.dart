@@ -18,6 +18,9 @@ class Branch {
   final double deductionEarlyOut;
   final double deductionAbsent;
 
+  /// Max appraisal bonus as % of basic salary (paid pro-rata to the score).
+  final double bonusRate;
+
   static const List<String> allDays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
   static const List<String> defaultWorkingDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 
@@ -40,6 +43,7 @@ class Branch {
     this.deductionLate = 0,
     this.deductionEarlyOut = 0,
     this.deductionAbsent = 0,
+    this.bonusRate = 10,
   });
 
   factory Branch.fromJson(Map<String, dynamic> json) {
@@ -66,6 +70,7 @@ class Branch {
       deductionLate: (json['deduction_late'] as num?)?.toDouble() ?? 0,
       deductionEarlyOut: (json['deduction_early_out'] as num?)?.toDouble() ?? 0,
       deductionAbsent: (json['deduction_absent'] as num?)?.toDouble() ?? 0,
+      bonusRate: (json['bonus_rate'] as num?)?.toDouble() ?? 10,
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
           : null,
@@ -90,6 +95,7 @@ class Branch {
         'deduction_late': deductionLate,
         'deduction_early_out': deductionEarlyOut,
         'deduction_absent': deductionAbsent,
+        'bonus_rate': bonusRate,
         'created_at': createdAt?.toIso8601String(),
       };
 

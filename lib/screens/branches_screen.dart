@@ -64,6 +64,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
     final lateDeductionCtl = TextEditingController(text: '${branch?.deductionLate ?? 0}');
     final earlyOutDeductionCtl = TextEditingController(text: '${branch?.deductionEarlyOut ?? 0}');
     final absentDeductionCtl = TextEditingController(text: '${branch?.deductionAbsent ?? 0}');
+    final bonusRateCtl = TextEditingController(text: '${branch?.bonusRate ?? 10}');
 
     // Parse existing working days (default Mon-Fri)
     List<String> selectedDays = List<String>.from(branch?.workingDays ?? Branch.defaultWorkingDays);
@@ -284,6 +285,13 @@ class _BranchesScreenState extends State<BranchesScreen> {
                     style: TextStyle(color: context.colors.textPrimary),
                     decoration: InputDecoration(labelText: S.deductionAbsent, isDense: true),
                   ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: bonusRateCtl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: TextStyle(color: context.colors.textPrimary),
+                    decoration: InputDecoration(labelText: S.bonusRateLabel, isDense: true),
+                  ),
                 ],
               ),
             ),
@@ -325,6 +333,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                         'deduction_late': double.tryParse(lateDeductionCtl.text) ?? 0,
                         'deduction_early_out': double.tryParse(earlyOutDeductionCtl.text) ?? 0,
                         'deduction_absent': double.tryParse(absentDeductionCtl.text) ?? 0,
+                        'bonus_rate': double.tryParse(bonusRateCtl.text) ?? 10,
                       });
                       // Optimistically update local list — S3 read-after-write can be stale
                       if (mounted) {
@@ -467,7 +476,7 @@ class _BranchesScreenState extends State<BranchesScreen> {
                       return Center(child: Text(S.noBranchesYet, style: TextStyle(color: context.colors.textSecondary)));
                     }
                     return ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                       itemCount: list.length,
                       itemBuilder: (context, index) {
                         final branch = list[index];

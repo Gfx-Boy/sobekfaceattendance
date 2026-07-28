@@ -323,6 +323,16 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, null), child: Text(S.cancel)),
+            // Warehouse counting can span multiple sessions — let the counter
+            // persist the tally and come back later without completing (#2 r3).
+            if (isWarehouse && newStatus == 'done')
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, {
+                  'save_only': true,
+                  'counted_total': int.tryParse(countController.text.trim()),
+                }),
+                child: Text(S.saveAndContinueLater),
+              ),
             ElevatedButton(
               onPressed: uploading
                   ? null
@@ -339,9 +349,30 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       }),
     );
     if (result != null) {
+      final count = result['counted_total'] as int?;
+      if (result['save_only'] == true) {
+        try {
+          await ApiService().saveTaskCount(task.id, count ?? 0);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Text('${S.countedTotal}: ${count ?? 0}'),
+                  backgroundColor: AppTheme.accentGreen),
+            );
+          }
+          _loadTasks();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content: Text('$e'), backgroundColor: AppTheme.checkOutRed),
+            );
+          }
+        }
+        return;
+      }
       final cmt = (result['comment'] as String?) ?? '';
       final att = result['attachment'] as String?;
-      final count = result['counted_total'] as int?;
       _updateStatus(
         task,
         newStatus,
@@ -571,7 +602,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     }
     final sorted = monthCounts.keys.toList()..sort((a, b) => b.compareTo(a));
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: sorted.length,
       itemBuilder: (_, i) {
         final parts = sorted[i].split('-');
@@ -619,7 +650,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
             b.address.toLowerCase().contains(_saQ))
         .toList();
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: branches.length,
       itemBuilder: (_, i) {
         final b = branches[i];
@@ -653,7 +684,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
         .where((t) => _saQ.isEmpty || t.toLowerCase().contains(_saQ))
         .toList();
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: titles.length,
       itemBuilder: (_, i) {
         final title = titles[i];
@@ -689,7 +720,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
             e.email.toLowerCase().contains(_saQ))
         .toList();
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: emps.length,
       itemBuilder: (_, i) {
         final e = emps[i];
@@ -1131,6 +1162,13 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   void _showTaskDetail(Task task) {
     Color statusColor = _statusColor(task.status);
+    // The calendar view (the default) opens tasks only through this sheet, so
+    // the assignee needs the start/count/complete actions here too (#2 r3).
+    final me = context.read<AuthProvider>().employee;
+    final canAct = me != null &&
+        task.assignedTo == me.id &&
+        task.status != TaskStatus.done &&
+        task.status != TaskStatus.failed;
     showModalBottomSheet(
       context: context,
       backgroundColor: context.colors.cardBg,
@@ -1220,6 +1258,36 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                 const SizedBox(height: 6),
                 _attachmentThumbs(task.completionAttachments!),
               ],
+              if (canAct) ...[
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    if (task.status == TaskStatus.toDo)
+                      _statusButton(S.startTask, AppTheme.primaryBlue, () {
+                        Navigator.pop(ctx);
+                        _updateStatus(task, 'inProgress');
+                      }),
+                    if (task.status == TaskStatus.inProgress) ...[
+                      if (task.taskType == 'warehouse') ...[
+                        _statusButton(S.scanToCount, AppTheme.primaryBlue, () {
+                          Navigator.pop(ctx);
+                          _continueCounting(task);
+                        }),
+                        const SizedBox(width: 8),
+                      ],
+                      _statusButton(S.done, AppTheme.accentGreen, () {
+                        Navigator.pop(ctx);
+                        _showCompletionDialog(task, 'done');
+                      }),
+                      const SizedBox(width: 8),
+                      _statusButton(S.failed, AppTheme.checkOutRed, () {
+                        Navigator.pop(ctx);
+                        _showCompletionDialog(task, 'failed');
+                      }),
+                    ],
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -1256,18 +1324,39 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       ),
     );
 
-    Widget barcode = Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+    // Tappable exactly like the QR — the client tapped the barcode expecting
+    // it to open enlarged and "it didn't open" (#2 round 3).
+    Widget barcode = GestureDetector(
+      onTap: () => showDialog(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: BarcodeWidget(
+              barcode: Barcode.code128(),
+              data: code,
+              width: 300,
+              height: 130,
+              drawText: true,
+              style: const TextStyle(color: Colors.black, fontSize: 14),
+            ),
+          ),
+        ),
       ),
-      child: BarcodeWidget(
-        barcode: Barcode.code128(),
-        data: code,
-        width: 220,
-        height: 80,
-        drawText: false,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: BarcodeWidget(
+          barcode: Barcode.code128(),
+          data: code,
+          width: 220,
+          height: 80,
+          drawText: false,
+        ),
       ),
     );
 

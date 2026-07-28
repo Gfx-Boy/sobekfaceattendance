@@ -34,6 +34,12 @@ String dayStatusLabel(String status) {
       return S.holiday;
     case 'attend':
       return S.signIn;
+    case 'permission':
+      return S.permission;
+    case 'business_mission':
+      return S.businessMission;
+    case 'sick':
+      return S.sickLeave;
     default:
       return status;
   }
@@ -63,6 +69,11 @@ class AttendanceCalendar extends StatelessWidget {
   /// Whether to include the vacation/absent/holiday entries in the legend.
   final bool showStatusLegend;
 
+  /// Weekday numbers (DateTime.monday=1 … DateTime.sunday=7) rendered as
+  /// weekend. Defaults to Sat/Sun; pass the branch's real weekend so this
+  /// calendar and the HR day-status grid grey out the same days.
+  final List<int> weekendDays;
+
   const AttendanceCalendar({
     super.key,
     required this.month,
@@ -74,6 +85,7 @@ class AttendanceCalendar extends StatelessWidget {
     this.onPrevMonth,
     this.onNextMonth,
     this.showStatusLegend = false,
+    this.weekendDays = const [DateTime.saturday, DateTime.sunday],
   });
 
   @override
@@ -130,7 +142,7 @@ class AttendanceCalendar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
-        children: S.weekDays
+        children: S.weekDaysSun
             .map((d) => Expanded(
                   child: Center(
                     child: Text(
@@ -169,7 +181,9 @@ class AttendanceCalendar extends StatelessWidget {
     }
 
     final cells = <Widget>[];
-    for (var i = 1; i < firstWeekday; i++) {
+    // Sunday-first grid (matches the HR day-status screen): Sunday lands in
+    // column 0, so a month starting on weekday w needs w % 7 leading blanks.
+    for (var i = 0; i < firstWeekday % 7; i++) {
       cells.add(const SizedBox());
     }
 
@@ -178,7 +192,7 @@ class AttendanceCalendar extends StatelessWidget {
       final isToday = date.year == today.year &&
           date.month == today.month &&
           date.day == today.day;
-      final isWeekend = date.weekday == 6 || date.weekday == 7;
+      final isWeekend = weekendDays.contains(date.weekday);
 
       final dayRecs = dayRecords[day];
       String? checkIn;
@@ -186,12 +200,13 @@ class AttendanceCalendar extends StatelessWidget {
       int breakCount = 0;
       String? dayStatus;
       if (dayRecs != null && dayRecs.isNotEmpty) {
+        dayRecs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         final statusRecords =
             dayRecs.where((r) => r.type == 'day_status').toList();
         if (statusRecords.isNotEmpty) {
+          // Sorted above, so `last` really is the most recently set status.
           dayStatus = statusRecords.last.dayStatus;
         }
-        dayRecs.sort((a, b) => a.timestamp.compareTo(b.timestamp));
         final signInRecord = dayRecs.where((r) => r.type == 'sign_in').toList();
         final signOutRecord =
             dayRecs.where((r) => r.type == 'sign_out').toList();
@@ -244,7 +259,9 @@ class AttendanceCalendar extends StatelessWidget {
     int breakCount = 0,
     String? dayStatus,
   }) {
-    final bool attended = checkIn != null;
+    // An admin-set "attend" day counts as attended even without a punch —
+    // HR marking someone present via set-status must show on the sheet (#8).
+    final bool attended = checkIn != null || dayStatus == 'attend';
     final bool completedDay = checkIn != null && checkOut != null;
 
     Color topColor;
@@ -310,6 +327,17 @@ class AttendanceCalendar extends StatelessWidget {
                         dayStatusLabel(dayStatus),
                         style: TextStyle(
                           color: dayStatusColor(context, dayStatus),
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ] else if (dayStatus == 'attend' && checkIn == null) ...[
+                      // Admin-set presence with no real punch time.
+                      const SizedBox(height: 1),
+                      Text(
+                        S.signIn,
+                        style: const TextStyle(
+                          color: AppTheme.accentGreen,
                           fontSize: 8,
                           fontWeight: FontWeight.w600,
                         ),

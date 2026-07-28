@@ -92,6 +92,14 @@ class S {
   static String get profileUpdated => _t('Profile updated', 'تم تحديث الملف الشخصي');
   static String get failedToUpdateProfile => _t('Failed to update profile', 'فشل تحديث الملف الشخصي');
   static String get attendanceHistory => _t('Attendance History', 'سجل الحضور');
+  static String get failedToLoadData => _t('Failed to load data. Tap refresh to retry.', 'فشل تحميل البيانات. اضغط تحديث لإعادة المحاولة.');
+  static String get saveAndContinueLater => _t('Save & finish later', 'حفظ والإكمال لاحقًا');
+  static String get bonusRateLabel => _t('Appraisal bonus (max % of salary)', 'مكافأة التقييم (٪ من الراتب كحد أقصى)');
+  static String get incompleteCount => _t('Incomplete Days', 'أيام غير مكتملة');
+  static String get appraisalScore => _t('Appraisal Score', 'نتيجة التقييم');
+  static String get excusedDays => _t('Excused Days', 'أيام بعذر');
+  static String get regenerate => _t('Recalculate', 'إعادة الحساب');
+  static String get imageNotLive => _t('Alert: the image is not live', 'تنبيه: الصورة ليست مباشرة');
 
   // ── Attendance ──
   static String get attendance => _t('Attendance', 'الحضور');

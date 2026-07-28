@@ -402,7 +402,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: branches.length,
         itemBuilder: (context, i) {
           final b = branches[i];
@@ -433,7 +433,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: periods.length,
         itemBuilder: (context, i) {
           final p = periods[i];
@@ -464,7 +464,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: titles.length,
         itemBuilder: (context, i) {
           final t = titles[i];
@@ -496,7 +496,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     return RefreshIndicator(
       onRefresh: _isSA ? _loadSuperAdminData : _loadBranchAppraisals,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: empItems.length,
         itemBuilder: (context, i) {
           final emp = empItems[i];
@@ -631,7 +631,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
           ? _loadSuperAdminData
           : (_isEmployee ? _loadMyAppraisals : _loadBranchAppraisals),
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: items.length,
         itemBuilder: (context, i) {
           final item = items[i];

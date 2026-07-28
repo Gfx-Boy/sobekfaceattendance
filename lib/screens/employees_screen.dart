@@ -203,7 +203,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 : _branches.isEmpty
                     ? Center(child: Text(S.noBranchesFound, style: TextStyle(color: context.colors.textSecondary)))
                     : ListView.builder(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                         itemCount: _branches.length,
                         itemBuilder: (ctx, i) {
                           final b = _branches[i];
@@ -317,7 +317,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           : RefreshIndicator(
                               onRefresh: _loadEmployees,
                               child: ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                padding: const EdgeInsets.fromLTRB(12, 0, 12, 96),
                                 itemCount: _filtered.length,
                                 itemBuilder: (context, index) {
                                   final emp = _filtered[index];

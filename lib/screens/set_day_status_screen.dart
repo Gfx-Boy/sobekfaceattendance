@@ -7,6 +7,7 @@ import '../models/branch.dart';
 import '../models/employee.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/attendance_calendar.dart' show dayStatusColor, dayStatusLabel;
 
 /// Admin/HR view to set per-day attendance status for any employee in scope.
 ///
@@ -717,30 +718,16 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
                   day == today.day;
 
               // Explicit status wins over the branch weekly-holiday rule.
+              // Colors/labels come from the shared day-status vocabulary so
+              // this grid and the employee attendance sheet always agree.
               Color? bg;
               String? labelText;
-              switch (st) {
-                case 'vacation':
-                  bg = AppTheme.primaryBlue.withValues(alpha: 0.25);
-                  labelText = S.vacation;
-                  break;
-                case 'holiday':
-                  bg = AppTheme.warningAmber.withValues(alpha: 0.25);
-                  labelText = S.holiday;
-                  break;
-                case 'absent':
-                  bg = AppTheme.checkOutRed.withValues(alpha: 0.25);
-                  labelText = S.absent;
-                  break;
-                case 'attend':
-                  bg = AppTheme.accentGreen.withValues(alpha: 0.25);
-                  labelText = S.signIn;
-                  break;
-                default:
-                  if (isWeeklyHoliday) {
-                    bg = AppTheme.warningAmber.withValues(alpha: 0.10);
-                    labelText = S.holiday;
-                  }
+              if (st != null && st.isNotEmpty) {
+                bg = dayStatusColor(context, st).withValues(alpha: 0.25);
+                labelText = dayStatusLabel(st);
+              } else if (isWeeklyHoliday) {
+                bg = AppTheme.warningAmber.withValues(alpha: 0.10);
+                labelText = S.holiday;
               }
 
               return GestureDetector(
@@ -796,6 +783,10 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
         return S.absent;
       case 'attend':
         return S.signIn;
+      case 'permission':
+        return S.permission;
+      case 'business_mission':
+        return S.businessMission;
       default:
         return s;
     }
