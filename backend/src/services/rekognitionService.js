@@ -5,6 +5,7 @@ const {
   DetectLabelsCommand,
 } = require('@aws-sdk/client-rekognition');
 const fs = require('fs');
+const { straightEdgeSignal } = require('./imageForensics');
 
 // In production (AWS EC2/EB), the instance IAM role is used automatically.
 // Locally, use the SSO profile via AWS_PROFILE env var or default profile.
@@ -105,6 +106,9 @@ function faceCoveredByDevice(face, device) {
  * picture on a screen. A device elsewhere in the frame (e.g. a monitor in the
  * background of a real office) does NOT trigger this.
  */
+// Labels that suggest a hand presenting something to the camera.
+const HAND_LABELS = new Set(['Hand', 'Finger', 'Holding Hands', 'Fist', 'Wrist']);
+
 async function detectScreenSpoof(imageBytes, faceBox) {
   const response = await rekognitionClient.send(
     new DetectLabelsCommand({
@@ -114,8 +118,18 @@ async function detectScreenSpoof(imageBytes, faceBox) {
     })
   );
 
+  // Soft signals — each alone is not proof, but two together are (#3 r3):
+  // a device/print label seen anywhere in the frame with high confidence,
+  // and a hand presenting something while a device label is present.
+  let frameLabel = null;
+  let sawHand = false;
+  let sawDevice = false;
+
   for (const label of response.Labels || []) {
+    if (HAND_LABELS.has(label.Name) && label.Confidence >= 70) sawHand = true;
     if (!SPOOF_DEVICE_LABELS.has(label.Name)) continue;
+    if (label.Confidence >= 70) sawDevice = true;
+    if (label.Confidence >= 85) frameLabel = label.Name;
     for (const inst of label.Instances || []) {
       if (!inst.BoundingBox) continue;
       const covered = faceCoveredByDevice(faceBox, inst.BoundingBox);
@@ -127,7 +141,13 @@ async function detectScreenSpoof(imageBytes, faceBox) {
       }
     }
   }
-  return { spoof: false };
+  return {
+    spoof: false,
+    softSignals: {
+      frameLabel,                       // e.g. "Cell Phone" seen w/o box
+      handDevice: sawHand && sawDevice, // a hand holding a device/print
+    },
+  };
 }
 
 /**
@@ -181,6 +201,34 @@ async function detectLiveness(imagePath) {
         message: 'Alert: the image is not live',
       };
     }
+
+    // Combine soft signals: any TWO of {device label seen frame-wide, hand
+    // presenting a device, long straight border edge} → spoof. One alone can
+    // happen in an honest office (a monitor behind you, a doorframe), two
+    // together mean a picture is being held to the camera.
+    const soft = spoofCheck.softSignals || {};
+    let signals = 0;
+    const hit = [];
+    if (soft.frameLabel) { signals++; hit.push(`label:${soft.frameLabel}`); }
+    if (soft.handDevice) { signals++; hit.push('hand+device'); }
+    if (signals >= 1) {
+      // Only pay the pixel-scan cost when at least one label signal fired.
+      try {
+        const edge = await straightEdgeSignal(imagePath, face.BoundingBox);
+        if (edge) { signals++; hit.push('straight-edge'); }
+      } catch (e) {
+        console.error('Edge scan failed (continuing):', e.message);
+      }
+    }
+    if (signals >= 2) {
+      console.log(`Spoof (combined signals): ${hit.join(', ')}`);
+      return {
+        isLive: false,
+        spoof: true,
+        message: 'Alert: the image is not live',
+      };
+    }
+    if (signals === 1) console.log(`Spoof signal (allowed, only one): ${hit.join(', ')}`);
   } catch (e) {
     console.error('Screen spoof check failed (continuing):', e.message);
   }

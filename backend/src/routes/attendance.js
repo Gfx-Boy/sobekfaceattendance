@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { uploadImage, putJSON, getJSON, listJSON, BUCKET_NAME } = require('../services/s3Service');
 const { compareFaces, detectLiveness, detectStaticSpoof } = require('../services/rekognitionService');
+const { perceptualHash, hammingHex } = require('../services/imageForensics');
 const { getEmployee } = require('./employees');
 
 const router = express.Router();
@@ -160,6 +161,32 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
       }
     }
 
+    // Step 2c: photo-reuse check — the same picture (screenshotted or
+    // re-photographed) presented on different days hashes the same. A live
+    // camera never produces a near-identical frame twice.
+    let captureHash = null;
+    try {
+      captureHash = await perceptualHash(capturedImagePath);
+      const recent = Array.isArray(employee.recent_capture_hashes)
+        ? employee.recent_capture_hashes
+        : [];
+      const REPLAY_BITS = parseInt(process.env.REPLAY_HASH_MAX_BITS || '6', 10);
+      const replay = recent.find((h) => hammingHex(h, captureHash) <= REPLAY_BITS);
+      if (replay) {
+        console.log(`Replay spoof rejected for ${employee_id}: capture matches a previous image`);
+        cleanup();
+        return res.json({
+          is_verified: false,
+          face_matched: false,
+          liveness_detected: false,
+          spoof: true,
+          message: 'Alert: the image is not live',
+        });
+      }
+    } catch (e) {
+      console.error('Replay check failed (continuing):', e.message);
+    }
+
     // Step 3: Face comparison with reference image
     const faceResult = await compareFaces(
       capturedImagePath,
@@ -197,6 +224,21 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
     };
 
     await putJSON(attendanceRecordKey(employee_id, attendanceId), record);
+
+    // Remember this capture's hash so the identical picture can never be
+    // replayed on another day (rolling window of the last 15 captures).
+    if (captureHash) {
+      try {
+        const hashes = Array.isArray(employee.recent_capture_hashes)
+          ? employee.recent_capture_hashes
+          : [];
+        hashes.push(captureHash);
+        employee.recent_capture_hashes = hashes.slice(-15);
+        await putJSON(`data/employees/employee-${employee_id}.json`, employee);
+      } catch (e) {
+        console.error('Failed to store capture hash (continuing):', e.message);
+      }
+    }
 
     res.json({
       is_verified: true,
