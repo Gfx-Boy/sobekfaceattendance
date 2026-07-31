@@ -178,6 +178,7 @@ class ApiService {
   Future<VerificationResult> markAttendance({
     required String employeeId,
     required File imageFile,
+    File? controlImageFile,
     required double latitude,
     required double longitude,
     String type = 'sign_in',
@@ -201,6 +202,16 @@ class ApiService {
               contentType: MediaType('image', 'jpeg'),
             ),
           );
+        // Silent second frame for the server's passive anti-spoof check.
+        if (controlImageFile != null) {
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'image_b',
+              controlImageFile.path,
+              contentType: MediaType('image', 'jpeg'),
+            ),
+          );
+        }
 
         final streamedResponse =
             await _client.send(request).timeout(AppConfig.uploadTimeout);

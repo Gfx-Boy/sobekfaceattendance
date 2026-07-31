@@ -28,6 +28,7 @@ class AttendanceProvider extends ChangeNotifier {
 
   AttendanceStep _currentStep = AttendanceStep.idle;
   File? _capturedImage;
+  File? _controlImage;
   Position? _currentPosition;
   VerificationResult? _verificationResult;
   List<AttendanceRecord> _attendanceHistory = [];
@@ -118,6 +119,17 @@ class AttendanceProvider extends ChangeNotifier {
 
       _capturedImage = await _cameraService.captureImage();
 
+      // Silent control frame ~1s later for the server's passive liveness
+      // check: a photo/screen held to the camera shows no facial motion
+      // between the two frames and gets rejected as "not live". No UX change.
+      _controlImage = null;
+      try {
+        await Future.delayed(const Duration(milliseconds: 950));
+        _controlImage = await _cameraService.captureImage();
+      } catch (_) {
+        // Control frame is best-effort; the primary capture stands alone.
+      }
+
       _currentStep = AttendanceStep.captured;
       notifyListeners();
     } catch (e) {
@@ -176,6 +188,7 @@ class AttendanceProvider extends ChangeNotifier {
       _verificationResult = await _apiService.markAttendance(
         employeeId: employeeId,
         imageFile: _capturedImage!,
+        controlImageFile: _controlImage,
         latitude: _currentPosition!.latitude,
         longitude: _currentPosition!.longitude,
         type: _attendanceType,
@@ -218,6 +231,7 @@ class AttendanceProvider extends ChangeNotifier {
   void reset() {
     _currentStep = AttendanceStep.idle;
     _capturedImage = null;
+    _controlImage = null;
     _currentPosition = null;
     _verificationResult = null;
     _error = null;

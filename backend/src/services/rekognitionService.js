@@ -110,7 +110,7 @@ async function detectScreenSpoof(imageBytes, faceBox) {
     new DetectLabelsCommand({
       Image: { Bytes: imageBytes },
       MaxLabels: 35,
-      MinConfidence: 60,
+      MinConfidence: 55,
     })
   );
 
@@ -248,4 +248,86 @@ async function detectLiveness(imagePath) {
   };
 }
 
-module.exports = { compareFaces, detectLiveness };
+// ---------------------------------------------------------------------------
+// Passive two-frame liveness (#3 round 3 follow-up)
+//
+// The app silently captures a second frame ~1s after the first. A photo held
+// up to the camera (printed, or shown on another phone that fills the whole
+// frame — the case DetectLabels cannot see) is a RIGID plane: between the two
+// frames its yaw/pitch cannot change, its eyes cannot move, and its landmark
+// geometry relative to the face box stays frozen. A live face always shows
+// small non-rigid changes across a second. Thresholds are deliberately tight
+// so a very still real person is never rejected; tune via env if needed.
+const STATIC_LANDMARK_EPS = parseFloat(process.env.STATIC_LANDMARK_EPS || '0.004');
+const STATIC_POSE_EPS = parseFloat(process.env.STATIC_POSE_EPS || '0.9');
+const STATIC_EXPR_EPS = parseFloat(process.env.STATIC_EXPR_EPS || '1.5');
+
+async function detectStaticSpoof(imagePathA, imagePathB) {
+  const bytesA = fs.readFileSync(imagePathA);
+  const bytesB = fs.readFileSync(imagePathB);
+
+  // Byte-identical frames can only come from a replayed file, never a camera.
+  if (bytesA.equals(bytesB)) {
+    return { spoof: true, reason: 'identical frames' };
+  }
+
+  const detect = (bytes) =>
+    rekognitionClient.send(new DetectFacesCommand({ Image: { Bytes: bytes }, Attributes: ['ALL'] }));
+  const [ra, rb] = await Promise.all([detect(bytesA), detect(bytesB)]);
+  const fa = ra.FaceDetails && ra.FaceDetails[0];
+  const fb = rb.FaceDetails && rb.FaceDetails[0];
+  // Face missing in the control frame — don't block (main pipeline already
+  // validated frame A); fail open.
+  if (!fa || !fb) return { spoof: false };
+
+  // Run the screen/print label check on the second frame too — the attacker
+  // may reveal the device edge only in one of the frames.
+  try {
+    const sc = await detectScreenSpoof(bytesB, fb.BoundingBox || { Left: 0, Top: 0, Width: 1, Height: 1 });
+    if (sc.spoof) return { spoof: true, reason: `device in control frame (${sc.device})` };
+  } catch (e) {
+    console.error('Control-frame screen check failed (continuing):', e.message);
+  }
+
+  // Landmark constellation normalized to the face box — cancels out global
+  // motion of the camera/photo, leaving only non-rigid facial change.
+  const norm = (f) => {
+    const bb = f.BoundingBox;
+    const map = {};
+    for (const l of f.Landmarks || []) {
+      map[l.Type] = { x: (l.X - bb.Left) / bb.Width, y: (l.Y - bb.Top) / bb.Height };
+    }
+    return map;
+  };
+  const la = norm(fa);
+  const lb = norm(fb);
+  const deltas = [];
+  for (const t of Object.keys(la)) {
+    if (lb[t]) deltas.push(Math.hypot(la[t].x - lb[t].x, la[t].y - lb[t].y));
+  }
+  if (deltas.length < 5) return { spoof: false };
+  const meanDelta = deltas.reduce((s, d) => s + d, 0) / deltas.length;
+
+  const poseDelta =
+    Math.abs((fa.Pose?.Yaw ?? 0) - (fb.Pose?.Yaw ?? 0)) +
+    Math.abs((fa.Pose?.Pitch ?? 0) - (fb.Pose?.Pitch ?? 0));
+  const eyeDelta = Math.abs((fa.EyesOpen?.Confidence ?? 0) - (fb.EyesOpen?.Confidence ?? 0));
+  const mouthDelta = Math.abs((fa.MouthOpen?.Confidence ?? 0) - (fb.MouthOpen?.Confidence ?? 0));
+
+  console.log('Static-spoof check:', {
+    meanLandmarkDelta: meanDelta.toFixed(5),
+    poseDelta: poseDelta.toFixed(2),
+    eyeDelta: eyeDelta.toFixed(2),
+    mouthDelta: mouthDelta.toFixed(2),
+  });
+
+  const rigid =
+    meanDelta < STATIC_LANDMARK_EPS &&
+    poseDelta < STATIC_POSE_EPS &&
+    eyeDelta < STATIC_EXPR_EPS &&
+    mouthDelta < STATIC_EXPR_EPS;
+
+  return rigid ? { spoof: true, reason: 'static image (no facial motion between frames)' } : { spoof: false };
+}
+
+module.exports = { compareFaces, detectLiveness, detectStaticSpoof };

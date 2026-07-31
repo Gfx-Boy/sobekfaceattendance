@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const { uploadImage, putJSON, getJSON, listJSON, BUCKET_NAME } = require('../services/s3Service');
-const { compareFaces, detectLiveness } = require('../services/rekognitionService');
+const { compareFaces, detectLiveness, detectStaticSpoof } = require('../services/rekognitionService');
 const { getEmployee } = require('./employees');
 
 const router = express.Router();
@@ -43,13 +43,24 @@ const attendanceRecordKey = (employeeId, recordId) =>
   `data/attendance/${employeeId}/record-${recordId}.json`;
 
 // POST /api/attendance/mark
-router.post('/mark', upload.single('image'), async (req, res) => {
+// `image` is the capture shown to the user; `image_b` is a control frame the
+// app takes silently ~1s later for the passive static-spoof check (optional,
+// older APKs don't send it).
+router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'image_b', maxCount: 1 }]), async (req, res) => {
+  const primaryFile = req.files?.image?.[0];
+  const controlFile = req.files?.image_b?.[0];
+  const cleanup = () => {
+    for (const f of [primaryFile, controlFile]) {
+      if (f) { try { fs.unlinkSync(f.path); } catch (_) {} }
+    }
+  };
   try {
     const { employee_id, latitude, longitude, type } = req.body;
     const validTypes = ['sign_in', 'sign_out', 'break_start', 'break_end'];
     const attendanceType = validTypes.includes(type) ? type : 'sign_in';
 
     if (!employee_id || !latitude || !longitude) {
+      cleanup();
       return res.status(400).json({
         is_verified: false,
         face_matched: false,
@@ -58,7 +69,8 @@ router.post('/mark', upload.single('image'), async (req, res) => {
       });
     }
 
-    if (!req.file) {
+    if (!primaryFile) {
+      cleanup();
       return res.status(400).json({
         is_verified: false,
         face_matched: false,
@@ -70,6 +82,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
     // Find the employee from S3
     const employee = await getEmployee(employee_id);
     if (!employee) {
+      cleanup();
       return res.status(404).json({
         is_verified: false,
         face_matched: false,
@@ -78,7 +91,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
       });
     }
 
-    const capturedImagePath = req.file.path;
+    const capturedImagePath = primaryFile.path;
 
     // Step 0: Geofence check — if employee has allowed location, verify they're within range
     if (employee.allowed_latitude != null && employee.allowed_longitude != null && employee.allowed_radius != null) {
@@ -98,7 +111,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
       const distance = R * c;
 
       if (distance > employee.allowed_radius) {
-        fs.unlinkSync(capturedImagePath);
+        cleanup();
         return res.json({
           is_verified: false,
           face_matched: false,
@@ -115,7 +128,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
     // Step 2: Liveness detection
     const livenessResult = await detectLiveness(capturedImagePath);
     if (!livenessResult.isLive) {
-      fs.unlinkSync(capturedImagePath);
+      cleanup();
       return res.json({
         is_verified: false,
         face_matched: false,
@@ -125,6 +138,28 @@ router.post('/mark', upload.single('image'), async (req, res) => {
       });
     }
 
+    // Step 2b: passive static-spoof check against the silent control frame —
+    // catches a photo/screen held to the camera even when it fills the whole
+    // frame (no device edges for DetectLabels to see). Fails open on errors.
+    if (controlFile) {
+      try {
+        const staticCheck = await detectStaticSpoof(capturedImagePath, controlFile.path);
+        if (staticCheck.spoof) {
+          console.log(`Static spoof rejected for ${employee_id}: ${staticCheck.reason}`);
+          cleanup();
+          return res.json({
+            is_verified: false,
+            face_matched: false,
+            liveness_detected: false,
+            spoof: true,
+            message: 'Alert: the image is not live',
+          });
+        }
+      } catch (e) {
+        console.error('Static-spoof check failed (continuing):', e.message);
+      }
+    }
+
     // Step 3: Face comparison with reference image
     const faceResult = await compareFaces(
       capturedImagePath,
@@ -132,7 +167,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
       employee.reference_image_key,
     );
 
-    fs.unlinkSync(capturedImagePath);
+    cleanup();
 
     if (!faceResult.matched) {
       return res.json({
@@ -177,11 +212,7 @@ router.post('/mark', upload.single('image'), async (req, res) => {
     });
   } catch (error) {
     console.error('Attendance marking error:', error);
-
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
+    cleanup();
     res.status(500).json({
       is_verified: false,
       face_matched: false,
