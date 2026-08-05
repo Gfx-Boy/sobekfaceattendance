@@ -14,6 +14,7 @@ import 'screens/login_screen.dart';
 // Register screen removed — only admins can create accounts
 import 'screens/main_shell.dart';
 import 'screens/camera_screen.dart';
+import 'screens/liveness_screen.dart';
 import 'screens/verification_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -99,6 +100,7 @@ class FaceAttendanceApp extends StatelessWidget {
           '/login': (_) => const LoginScreen(),
           '/main': (_) => const MainShell(),
           '/camera': (_) => const CameraScreen(),
+          '/liveness': (_) => const LivenessScreen(),
           '/verify': (_) => const VerificationScreen(),
           '/history': (_) => const HistoryScreen(),
           '/notifications': (_) => const NotificationsScreen(),

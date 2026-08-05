@@ -175,10 +175,27 @@ class ApiService {
 
   // ---------- Attendance ----------
 
+  /// Starts an AWS Face Liveness session; the returned id drives the oval
+  /// face-scan and is then verified server-side in [markAttendance].
+  Future<String> createLivenessSession() => _call(() async {
+        final response = await _client
+            .post(
+              Uri.parse('$baseUrl/attendance/liveness/session'),
+              headers: _headers,
+            )
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          return (json.decode(response.body)
+              as Map<String, dynamic>)['session_id'] as String;
+        }
+        throw ApiException('Failed to start liveness session');
+      });
+
   Future<VerificationResult> markAttendance({
     required String employeeId,
-    required File imageFile,
+    File? imageFile,
     File? controlImageFile,
+    String? livenessSessionId,
     required double latitude,
     required double longitude,
     String type = 'sign_in',
@@ -194,14 +211,19 @@ class ApiService {
           ..fields['employee_id'] = employeeId
           ..fields['latitude'] = latitude.toString()
           ..fields['longitude'] = longitude.toString()
-          ..fields['type'] = type
-          ..files.add(
+          ..fields['type'] = type;
+        if (livenessSessionId != null) {
+          request.fields['liveness_session_id'] = livenessSessionId;
+        }
+        if (imageFile != null) {
+          request.files.add(
             await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
               contentType: MediaType('image', 'jpeg'),
             ),
           );
+        }
         // Silent second frame for the server's passive anti-spoof check.
         if (controlImageFile != null) {
           request.files.add(

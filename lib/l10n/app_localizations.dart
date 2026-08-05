@@ -100,6 +100,8 @@ class S {
   static String get excusedDays => _t('Excused Days', 'أيام بعذر');
   static String get regenerate => _t('Recalculate', 'إعادة الحساب');
   static String get imageNotLive => _t('Alert: the image is not live', 'تنبيه: الصورة ليست مباشرة');
+  static String get preparingLivenessCheck => _t('Preparing secure face check…', 'جارٍ تجهيز فحص الوجه الآمن…');
+  static String get livenessScanFailed => _t('Face check was not completed. Please try again in good lighting.', 'لم يكتمل فحص الوجه. حاول مرة أخرى في إضاءة جيدة.');
 
   // ── Attendance ──
   static String get attendance => _t('Attendance', 'الحضور');

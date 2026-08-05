@@ -3,6 +3,8 @@ const {
   CompareFacesCommand,
   DetectFacesCommand,
   DetectLabelsCommand,
+  CreateFaceLivenessSessionCommand,
+  GetFaceLivenessSessionResultsCommand,
 } = require('@aws-sdk/client-rekognition');
 const fs = require('fs');
 const { straightEdgeSignal } = require('./imageForensics');
@@ -378,4 +380,56 @@ async function detectStaticSpoof(imagePathA, imagePathB) {
   return rigid ? { spoof: true, reason: 'static image (no facial motion between frames)' } : { spoof: false };
 }
 
-module.exports = { compareFaces, detectLiveness, detectStaticSpoof };
+// ---------------------------------------------------------------------------
+// AWS Rekognition Face Liveness (#3 final escalation): the app streams a
+// short selfie-video challenge to AWS, which decides server-side whether a
+// LIVE person is in front of the camera. Photos, screens, and prints cannot
+// pass. The session's audit ReferenceImage is what we face-match against, so
+// the identity is cryptographically bound to the live scan.
+const LIVENESS_MIN_CONFIDENCE = parseFloat(process.env.LIVENESS_MIN_CONFIDENCE || '75');
+
+async function createLivenessSession() {
+  const res = await rekognitionClient.send(new CreateFaceLivenessSessionCommand({}));
+  return res.SessionId;
+}
+
+/**
+ * Returns { live, confidence, referenceImageBytes } for a completed session.
+ * Throws if the session doesn't exist / isn't finished.
+ */
+async function getLivenessResult(sessionId) {
+  const res = await rekognitionClient.send(
+    new GetFaceLivenessSessionResultsCommand({ SessionId: sessionId })
+  );
+  const live =
+    res.Status === 'SUCCEEDED' && (res.Confidence ?? 0) >= LIVENESS_MIN_CONFIDENCE;
+  return {
+    live,
+    status: res.Status,
+    confidence: res.Confidence ?? 0,
+    referenceImageBytes: res.ReferenceImage?.Bytes || null,
+  };
+}
+
+/** CompareFaces with raw bytes as the source (liveness reference image). */
+async function compareFacesBytes(sourceBytes, targetS3Bucket, targetS3Key) {
+  const command = new CompareFacesCommand({
+    SourceImage: { Bytes: sourceBytes },
+    TargetImage: { S3Object: { Bucket: targetS3Bucket, Name: targetS3Key } },
+    SimilarityThreshold: FACE_MATCH_THRESHOLD,
+  });
+  const response = await rekognitionClient.send(command);
+  if (response.FaceMatches && response.FaceMatches.length > 0) {
+    return { matched: true, confidence: response.FaceMatches[0].Similarity };
+  }
+  return { matched: false, confidence: 0 };
+}
+
+module.exports = {
+  compareFaces,
+  compareFacesBytes,
+  detectLiveness,
+  detectStaticSpoof,
+  createLivenessSession,
+  getLivenessResult,
+};

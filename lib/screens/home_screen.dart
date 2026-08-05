@@ -334,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accentGreen,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('sign_in');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -343,7 +343,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.checkOutRed,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('sign_out');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -352,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.warningAmber,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('break_start');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -361,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.primaryBlue,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('break_end');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                   ],
@@ -490,7 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.accentGreen,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('sign_in');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -499,7 +499,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.checkOutRed,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('sign_out');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -508,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.warningAmber,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('break_start');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(
@@ -517,7 +517,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.primaryBlue,
                       onTap: () {
                         context.read<AttendanceProvider>().setAttendanceType('break_end');
-                        Navigator.pushNamed(context, '/camera');
+                        Navigator.pushNamed(context, '/liveness');
                       },
                     ),
                     _QuickAction(

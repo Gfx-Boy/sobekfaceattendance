@@ -4,7 +4,14 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 const { uploadImage, putJSON, getJSON, listJSON, BUCKET_NAME } = require('../services/s3Service');
-const { compareFaces, detectLiveness, detectStaticSpoof } = require('../services/rekognitionService');
+const {
+  compareFaces,
+  compareFacesBytes,
+  detectLiveness,
+  detectStaticSpoof,
+  createLivenessSession,
+  getLivenessResult,
+} = require('../services/rekognitionService');
 const { perceptualHash, hammingHex } = require('../services/imageForensics');
 const { getEmployee } = require('./employees');
 
@@ -43,6 +50,31 @@ const upload = multer({
 const attendanceRecordKey = (employeeId, recordId) =>
   `data/attendance/${employeeId}/record-${recordId}.json`;
 
+// ---------------------------------------------------------------------------
+// AWS Face Liveness (the definitive anti-spoof): the app runs the oval
+// face-scan against a session created here, then /mark verifies the session
+// server-side and face-matches the session's own audit image.
+
+// A liveness session may only ever authorize ONE attendance mark.
+const usedLivenessSessions = new Map(); // sessionId -> timestamp
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [sid, t] of usedLivenessSessions) {
+    if (t < cutoff) usedLivenessSessions.delete(sid);
+  }
+}, 60 * 1000).unref();
+
+// POST /api/attendance/liveness/session — start a Face Liveness session
+router.post('/liveness/session', async (req, res) => {
+  try {
+    const sessionId = await createLivenessSession();
+    res.json({ session_id: sessionId });
+  } catch (error) {
+    console.error('Create liveness session error:', error);
+    res.status(500).json({ error: 'Failed to create liveness session' });
+  }
+});
+
 // POST /api/attendance/mark
 // `image` is the capture shown to the user; `image_b` is a control frame the
 // app takes silently ~1s later for the passive static-spoof check (optional,
@@ -70,7 +102,9 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
       });
     }
 
-    if (!primaryFile) {
+    // A face image is required unless a Face Liveness session provides the
+    // audit image instead.
+    if (!primaryFile && !req.body.liveness_session_id) {
       cleanup();
       return res.status(400).json({
         is_verified: false,
@@ -92,7 +126,7 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
       });
     }
 
-    const capturedImagePath = primaryFile.path;
+    const capturedImagePath = primaryFile?.path;
 
     // Step 0: Geofence check — if employee has allowed location, verify they're within range
     if (employee.allowed_latitude != null && employee.allowed_longitude != null && employee.allowed_radius != null) {
@@ -122,9 +156,101 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
       }
     }
 
-    // Step 1: Upload captured image to S3
+    // Step 1: Upload captured image to S3 (when the app sent one; on the
+    // Face Liveness path the session's audit image is stored instead).
     const capturedS3Key = `attendance-images/${employee_id}/${uuidv4()}.jpg`;
-    await uploadImage(capturedImagePath, capturedS3Key);
+    if (capturedImagePath) {
+      await uploadImage(capturedImagePath, capturedS3Key);
+    }
+
+    // ── AWS Face Liveness path (new APKs) ─────────────────────────────────
+    // The oval-scan session already proved a live person server-side; we
+    // face-match against the SESSION'S OWN audit image so the identity is
+    // bound to the live scan — a photo/screen can neither pass the scan nor
+    // be substituted afterwards.
+    const livenessSessionId = req.body.liveness_session_id;
+    if (livenessSessionId) {
+      if (usedLivenessSessions.has(livenessSessionId)) {
+        cleanup();
+        return res.json({
+          is_verified: false, face_matched: false, liveness_detected: false,
+          spoof: true, message: 'Alert: the image is not live',
+        });
+      }
+      let session;
+      try {
+        session = await getLivenessResult(livenessSessionId);
+      } catch (e) {
+        console.error('Liveness result fetch failed:', e.message);
+        cleanup();
+        return res.json({
+          is_verified: false, face_matched: false, liveness_detected: false,
+          message: 'Liveness check could not be verified. Please try again.',
+        });
+      }
+      usedLivenessSessions.set(livenessSessionId, Date.now());
+      if (!session.live || !session.referenceImageBytes) {
+        console.log(`Face Liveness rejected for ${employee_id}: status=${session.status} conf=${session.confidence?.toFixed?.(1)}`);
+        cleanup();
+        return res.json({
+          is_verified: false, face_matched: false, liveness_detected: false,
+          spoof: true, message: 'Alert: the image is not live',
+        });
+      }
+
+      // No app-side photo on this path — store the session's audit image as
+      // the attendance picture.
+      if (!capturedImagePath) {
+        const tmp = path.join(require('os').tmpdir(), `liveness-${uuidv4()}.jpg`);
+        try {
+          fs.writeFileSync(tmp, session.referenceImageBytes);
+          await uploadImage(tmp, capturedS3Key);
+        } finally {
+          try { fs.unlinkSync(tmp); } catch (_) {}
+        }
+      }
+
+      const faceResult = await compareFacesBytes(
+        session.referenceImageBytes, BUCKET_NAME, employee.reference_image_key,
+      );
+      cleanup();
+      if (!faceResult.matched) {
+        return res.json({
+          is_verified: false, face_matched: false, liveness_detected: true,
+          face_match_confidence: faceResult.confidence,
+          message: 'Face does not match the registered employee',
+        });
+      }
+
+      const attendanceId = uuidv4();
+      const record = {
+        id: attendanceId,
+        employee_id,
+        employee_name: employee.name,
+        type: attendanceType,
+        timestamp: new Date().toISOString(),
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        status: 'success',
+        face_match_confidence: faceResult.confidence,
+        liveness_verified: true,
+        liveness_confidence: session.confidence,
+        geofence_verified: employee.allowed_radius != null,
+        image_url: `s3://${BUCKET_NAME}/${capturedS3Key}`,
+      };
+      await putJSON(attendanceRecordKey(employee_id, attendanceId), record);
+      return res.json({
+        is_verified: true, face_matched: true, liveness_detected: true,
+        face_match_confidence: faceResult.confidence,
+        message: attendanceType === 'sign_in' ? 'Signed in successfully!'
+          : attendanceType === 'sign_out' ? 'Signed out successfully!'
+          : attendanceType === 'break_start' ? 'Break started!'
+          : 'Break ended!',
+        attendance_id: attendanceId,
+        type: attendanceType,
+      });
+    }
+    // ── Legacy path (older APKs without the oval scan) ────────────────────
 
     // Step 2: Liveness detection
     const livenessResult = await detectLiveness(capturedImagePath);

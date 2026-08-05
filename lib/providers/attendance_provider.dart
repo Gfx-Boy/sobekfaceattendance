@@ -208,6 +208,43 @@ class AttendanceProvider extends ChangeNotifier {
     }
   }
 
+  /// Attendance via a completed AWS Face Liveness session — the server
+  /// verifies the scan proved a live person and face-matches its own audit
+  /// image, so no photo upload is involved in the decision.
+  Future<void> submitAttendanceWithLiveness(
+      String employeeId, String sessionId) async {
+    if (_currentPosition == null) {
+      _error = 'Location not available';
+      _currentStep = AttendanceStep.failed;
+      notifyListeners();
+      return;
+    }
+    try {
+      _currentStep = AttendanceStep.verifying;
+      notifyListeners();
+
+      _verificationResult = await _apiService.markAttendance(
+        employeeId: employeeId,
+        livenessSessionId: sessionId,
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+        type: _attendanceType,
+      );
+
+      if (_verificationResult!.isVerified) {
+        _currentStep = AttendanceStep.success;
+      } else {
+        _error = _verificationResult!.message;
+        _currentStep = AttendanceStep.failed;
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      _currentStep = AttendanceStep.failed;
+      notifyListeners();
+    }
+  }
+
   // ---------- History ----------
 
   Future<void> loadAttendanceHistory(String employeeId) async {

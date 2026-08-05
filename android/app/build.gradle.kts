@@ -8,12 +8,15 @@ plugins {
 
 android {
     namespace = "com.attendance.face_attendance"
-    compileSdk = flutter.compileSdkVersion
+    // AWS Face Liveness UI requires compileSdk 35+.
+    compileSdk = maxOf(flutter.compileSdkVersion, 35)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by the AWS Face Liveness SDK (java.time etc. on minSdk 24).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -25,7 +28,8 @@ android {
         applicationId = "com.attendance.face_attendance"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // AWS Face Liveness requires Android 7.0+.
+        minSdk = maxOf(flutter.minSdkVersion, 24)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -42,4 +46,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
