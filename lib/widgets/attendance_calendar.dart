@@ -211,12 +211,11 @@ class AttendanceCalendar extends StatelessWidget {
         final signOutRecord =
             dayRecs.where((r) => r.type == 'sign_out').toList();
         breakCount = dayRecs.where((r) => r.type == 'break_start').length;
+        // Only a real sign_in fills the check-in slot. The old fallback put
+        // "the first record of the day" here, so a lone sign_out painted its
+        // time in green as if the employee had signed in (#4 round 4).
         if (signInRecord.isNotEmpty) {
           final t = signInRecord.first.timestamp;
-          checkIn =
-              '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-        } else if (dayRecs.any((r) => r.type != 'day_status')) {
-          final t = dayRecs.firstWhere((r) => r.type != 'day_status').timestamp;
           checkIn =
               '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
         }
@@ -274,9 +273,11 @@ class AttendanceCalendar extends StatelessWidget {
           : dayStatusColor(context, dayStatus).withValues(alpha: 0.25);
       topColor = statusColor;
       bottomColor = statusColor;
-    } else if (isWeekend) {
-      topColor = context.colors.textMuted.withValues(alpha: 0.15);
-      bottomColor = context.colors.textMuted.withValues(alpha: 0.15);
+    } else if (isWeekend && !attended) {
+      // Branch weekly holiday — same amber + "Holiday" treatment as the HR
+      // day-status grid so the two screens never look contradictory (#1 r4).
+      topColor = AppTheme.warningAmber.withValues(alpha: 0.10);
+      bottomColor = AppTheme.warningAmber.withValues(alpha: 0.10);
     } else if (completedDay) {
       topColor = AppTheme.accentGreen.withValues(alpha: 0.2);
       bottomColor = AppTheme.checkOutRed.withValues(alpha: 0.2);
@@ -338,6 +339,17 @@ class AttendanceCalendar extends StatelessWidget {
                         S.signIn,
                         style: const TextStyle(
                           color: AppTheme.accentGreen,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ] else if (isWeekend && checkIn == null && checkOut == null) ...[
+                      // Branch weekly holiday label, matching the HR grid.
+                      const SizedBox(height: 1),
+                      Text(
+                        S.holiday,
+                        style: TextStyle(
+                          color: AppTheme.warningAmber.withValues(alpha: 0.9),
                           fontSize: 8,
                           fontWeight: FontWeight.w600,
                         ),
@@ -407,7 +419,7 @@ class AttendanceCalendar extends StatelessWidget {
         children: [
           _legendDot(context, AppTheme.accentGreen, S.signIn),
           _legendDot(context, AppTheme.checkOutRed, S.signOut),
-          _legendDot(context, context.colors.textMuted, S.weekend),
+          _legendDot(context, AppTheme.warningAmber, S.weekend),
           if (showStatusLegend) ...[
             _legendDot(context, Colors.orange, S.vacation),
             _legendDot(context, Colors.red, S.absent),

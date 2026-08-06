@@ -249,6 +249,9 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
         return AlertDialog(
           backgroundColor: context.colors.cardBg,
           title: Text(newStatus == 'done' ? S.done : S.failed),
+          // Keeps the dialog usable when the keyboard opens — content
+          // scrolls instead of squeezing over the fields (#2 round 4).
+          scrollable: true,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -292,13 +295,33 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
                     icon: const Icon(Icons.qr_code_scanner, size: 18),
                     label: Text(S.scanToCount),
                     onPressed: () async {
-                      final total = await _scanToCount(task.itemCode,
+                      final scan = await _scanToCount(task.itemCode,
                           initialCount:
                               int.tryParse(countController.text.trim()) ?? 0);
-                      if (total != null) {
-                        setS(() => countController.text = total.toString());
+                      if (scan == null) return;
+                      setS(() => countController.text = scan.count.toString());
+                      if (scan.saveNow && ctx.mounted) {
+                        // "Save & finish later" chosen inside the scanner:
+                        // persist the tally and close without completing.
+                        Navigator.pop(ctx, {
+                          'save_only': true,
+                          'counted_total': scan.count,
+                        });
                       }
                     },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.save_outlined, size: 18),
+                    label: Text(S.saveAndContinueLater),
+                    onPressed: () => Navigator.pop(ctx, {
+                      'save_only': true,
+                      'counted_total':
+                          int.tryParse(countController.text.trim()),
+                    }),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -323,16 +346,6 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, null), child: Text(S.cancel)),
-            // Warehouse counting can span multiple sessions — let the counter
-            // persist the tally and come back later without completing (#2 r3).
-            if (isWarehouse && newStatus == 'done')
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, {
-                  'save_only': true,
-                  'counted_total': int.tryParse(countController.text.trim()),
-                }),
-                child: Text(S.saveAndContinueLater),
-              ),
             ElevatedButton(
               onPressed: uploading
                   ? null
@@ -384,8 +397,10 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   }
 
   /// Opens a live counting scanner. Each scan (optionally matching
-  /// [expectedCode]) increments a tally; returns the final counted total.
-  Future<int?> _scanToCount(String? expectedCode, {int initialCount = 0}) async {
+  /// [expectedCode]) increments a tally; returns the final counted total and
+  /// whether the user chose "Save & finish later" from inside the scanner.
+  Future<_ScanResult?> _scanToCount(String? expectedCode,
+      {int initialCount = 0}) async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       if (mounted) {
@@ -398,7 +413,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       }
       return null;
     }
-    return await Navigator.of(context).push<int>(
+    return await Navigator.of(context).push<_ScanResult>(
       MaterialPageRoute(
           builder: (_) => _CountingScannerScreen(
               expectedCode: expectedCode, initialCount: initialCount)),
@@ -408,15 +423,15 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
   /// Scan starting from the task's saved tally and persist the new total
   /// without completing the task — "save & continue counting" (#18).
   Future<void> _continueCounting(Task task) async {
-    final total = await _scanToCount(task.itemCode,
+    final result = await _scanToCount(task.itemCode,
         initialCount: task.countedTotal ?? 0);
-    if (total == null) return;
+    if (result == null) return;
     try {
-      await ApiService().saveTaskCount(task.id, total);
+      await ApiService().saveTaskCount(task.id, result.count);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('${S.countedTotal}: $total'),
+              content: Text('${S.countedTotal}: ${result.count}'),
               backgroundColor: AppTheme.accentGreen),
         );
       }
@@ -1640,7 +1655,8 @@ class _CountingScannerScreenState extends State<_CountingScannerScreen> {
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.accentGreen),
-                  onPressed: () => Navigator.pop(context, _count),
+                  onPressed: () =>
+                      Navigator.pop(context, _ScanResult(_count, false)),
                   icon: const Icon(Icons.check, color: Colors.white),
                   label: Text(S.useCount,
                       style: const TextStyle(color: Colors.white)),
@@ -1648,8 +1664,36 @@ class _CountingScannerScreenState extends State<_CountingScannerScreen> {
               ],
             ),
           ),
+          // "Save & finish later" directly on the scan page (#2 round 4).
+          Positioned(
+            bottom: 80 + MediaQuery.of(context).viewPadding.bottom,
+            left: 16,
+            right: 16,
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white70),
+                  backgroundColor: Colors.black38,
+                ),
+                onPressed: () =>
+                    Navigator.pop(context, _ScanResult(_count, true)),
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: Text(S.saveAndContinueLater),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+/// Result of the counting scanner: the tally plus whether the user chose to
+/// persist it now and finish later.
+class _ScanResult {
+  final int count;
+  final bool saveNow;
+  const _ScanResult(this.count, this.saveNow);
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
 import '../models/attendance_record.dart';
 import '../models/auth_session.dart';
 import '../models/employee.dart';
@@ -66,17 +67,17 @@ class ApiService {
       }
       rethrow;
     } on TimeoutException {
-      throw ApiException(
-          'Request timed out. Check your internet connection and make sure the server is running.');
-    } on SocketException catch (e) {
-      throw ApiException(
-          'Cannot reach server.\n\nURL: $baseUrl\nDetails: ${e.message}\n\nMake sure:\n• Your phone has internet access\n• The tunnel is running on your Mac');
+      throw ApiException(S.errorNoInternet);
+    } on SocketException {
+      // Friendly, localized offline message — never leak URLs or dev-setup
+      // hints ("tunnel on your Mac") into production UI (#5 round 4).
+      throw ApiException(S.errorNoInternet);
     } on HandshakeException {
-      throw ApiException('SSL error connecting to server.');
-    } on HttpException catch (e) {
-      throw ApiException('HTTP error: ${e.message}');
+      throw ApiException(S.errorNoInternet);
+    } on HttpException {
+      throw ApiException(S.errorServer);
     } catch (e) {
-      throw ApiException('Unexpected error: $e');
+      throw ApiException(S.errorServer);
     }
   }
 
@@ -90,11 +91,11 @@ class ApiService {
       if (response.statusCode == 200) return null;
       return 'Server responded with status ${response.statusCode}';
     } on TimeoutException {
-      return 'Connection timed out (8s). Server URL: $baseUrl';
-    } on SocketException catch (e) {
-      return 'Cannot reach server.\nURL: $baseUrl\nError: ${e.message}';
-    } catch (e) {
-      return 'Connection error: $e';
+      return S.errorNoInternet;
+    } on SocketException {
+      return S.errorNoInternet;
+    } catch (_) {
+      return S.errorNoInternet;
     }
   }
 
@@ -1190,6 +1191,8 @@ class ApiException implements Exception {
   final String message;
   ApiException(this.message);
 
+  // Screens render errors with '$e' — return the bare message so users never
+  // see the "ApiException:" prefix (#5 round 4).
   @override
-  String toString() => 'ApiException: $message';
+  String toString() => message;
 }
