@@ -163,6 +163,20 @@ router.post('/mark', upload.fields([{ name: 'image', maxCount: 1 }, { name: 'ima
       await uploadImage(capturedImagePath, capturedS3Key);
     }
 
+    // Attendance REQUIRES a Face Liveness session — the legacy photo path is
+    // the exact bypass a spoofer retried through (client video, round 4).
+    // Set REQUIRE_LIVENESS=false only if old APKs must temporarily work.
+    const requireLiveness = process.env.REQUIRE_LIVENESS !== 'false';
+    if (requireLiveness && !req.body.liveness_session_id) {
+      cleanup();
+      return res.json({
+        is_verified: false,
+        face_matched: false,
+        liveness_detected: false,
+        message: 'Please update the app to the latest version to mark attendance.',
+      });
+    }
+
     // ── AWS Face Liveness path (new APKs) ─────────────────────────────────
     // The oval-scan session already proved a live person server-side; we
     // face-match against the SESSION'S OWN audit image so the identity is

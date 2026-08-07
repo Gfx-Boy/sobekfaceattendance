@@ -318,7 +318,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
             ),
             onPressed: () {
               provider.reset();
-              Navigator.pushReplacementNamed(context, '/camera');
+              // Retry goes back through the LIVENESS scan — routing to the
+              // old camera flow here let a rejected spoof retry through the
+              // weaker legacy path (found in client's video, round 4).
+              Navigator.pushReplacementNamed(context, '/liveness');
             },
           ),
         const SizedBox(height: 12),
@@ -359,6 +362,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
     // exact alert the client specified, localized (#3 r3).
     if (lower.contains('not live') || lower.contains('spoof')) {
       return S.imageNotLive;
+    }
+    if (lower.contains('update the app')) {
+      return S.updateAppRequired;
     }
     if (lower.contains('timeout') || lower.contains('timed out')) {
       return S.errorTimeout;
