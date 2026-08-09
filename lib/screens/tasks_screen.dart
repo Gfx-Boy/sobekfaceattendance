@@ -153,11 +153,16 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
     super.dispose();
   }
 
+  String? _loadError;
+
   Future<void> _loadTasks() async {
     final employee = context.read<AuthProvider>().employee;
     if (employee == null) return;
     try {
-      setState(() => _loading = true);
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
       final api = ApiService();
       if (employee.role == UserRole.superAdmin) {
         // SuperAdmin sees all tasks across all branches
@@ -177,8 +182,37 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       }
       if (mounted) setState(() => _loading = false);
     } catch (e) {
+      // A failed fetch is not "no tasks" — remember the reason so the list
+      // shows it with a retry instead of a misleading empty state (#2 r5).
+      _loadError = '$e';
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Widget _loadErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off_rounded,
+                size: 64,
+                color: context.colors.textSecondary.withValues(alpha: 0.4)),
+            const SizedBox(height: 12),
+            Text(_loadError ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.colors.textSecondary)),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: Text(S.tryAgain),
+              onPressed: _loadTasks,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _updateStatus(Task task, String newStatus,
@@ -613,6 +647,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
       monthCounts[key] = (monthCounts[key] ?? 0) + 1;
     }
     if (monthCounts.isEmpty) {
+      if (_loadError != null) return _loadErrorView();
       return Center(child: Text(S.noTasks, style: TextStyle(color: context.colors.textSecondary)));
     }
     final sorted = monthCounts.keys.toList()..sort((a, b) => b.compareTo(a));
@@ -1073,6 +1108,7 @@ class _TasksScreenState extends State<TasksScreen> with SingleTickerProviderStat
 
   Widget _buildTaskList(List<Task> tasks, {required bool showActions}) {
     if (tasks.isEmpty) {
+      if (_loadError != null) return _loadErrorView();
       return Center(child: Text(S.noTasks, style: TextStyle(color: context.colors.textSecondary)));
     }
     return ListView.builder(

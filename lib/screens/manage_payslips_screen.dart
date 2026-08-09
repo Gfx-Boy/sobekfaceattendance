@@ -19,6 +19,7 @@ class ManagePayslipsScreen extends StatefulWidget {
 
 class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   bool _loading = true;
+  String? _loadError;
 
   // Super Admin drill-down levels
   _PayslipLevel _level = _PayslipLevel.branches;
@@ -84,7 +85,10 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   Future<void> _loadSuperAdminData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final results = await Future.wait([
         ApiService().getAllEmployees(),
@@ -98,12 +102,16 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       _employeesMap = {for (final e in employees) e.id: e};
     } catch (e) {
       debugPrint('Load payslips error: $e');
+      _loadError = '$e';
     }
     if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _loadBranchPayslips() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final branchId = context.read<AuthProvider>().employee?.branchId;
       final employees = await ApiService().getAllEmployees(branchId: branchId);
@@ -134,6 +142,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
           (a['name'] as String).compareTo(b['name'] as String));
     } catch (e) {
       debugPrint('Load branch payslips error: $e');
+      _loadError = '$e';
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -261,12 +270,16 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildSearchBar(),
-                Expanded(child: _buildBody()),
-              ],
-            ),
+          // A failed fetch is NOT an empty branch — show the real reason
+          // (e.g. no internet) with a retry instead of "No employees" (#2 r5).
+          : _loadError != null
+              ? _buildLoadError()
+              : Column(
+                  children: [
+                    _buildSearchBar(),
+                    Expanded(child: _buildBody()),
+                  ],
+                ),
       floatingActionButton: _buildFab(),
     );
   }
@@ -869,6 +882,33 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       default:
         return Icons.person_outline;
     }
+  }
+
+  Widget _buildLoadError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off_rounded,
+                size: 64,
+                color: context.colors.textSecondary.withValues(alpha: 0.4)),
+            const SizedBox(height: 12),
+            Text(_loadError ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.colors.textSecondary)),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: Text(S.tryAgain),
+              onPressed: () =>
+                  _isSA ? _loadSuperAdminData() : _loadBranchPayslips(),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildEmpty(String msg, IconData icon) {

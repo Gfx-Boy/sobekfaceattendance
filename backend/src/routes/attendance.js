@@ -491,7 +491,7 @@ router.put('/day-status', async (req, res) => {
     // Keep in sync with branches.js branch-wide day-status: request approvals
     // also write permission/business_mission/sick records, so the per-employee
     // route must accept the same vocabulary.
-    const validStatuses = ['attend', 'vacation', 'absent', 'holiday', 'permission', 'business_mission', 'sick'];
+    const validStatuses = ['attend', 'sign_out', 'attend_full', 'vacation', 'absent', 'holiday', 'permission', 'business_mission', 'sick'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }

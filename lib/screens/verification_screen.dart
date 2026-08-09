@@ -27,6 +27,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final provider = context.read<AttendanceProvider>();
     final auth = context.read<AuthProvider>();
 
+    // The liveness flow submits BEFORE navigating here. This legacy
+    // auto-pipeline must not run on top of it — it has no captured image, so
+    // it overwrote the real result with "Image or location not available"
+    // even for genuine sign-ins (client video, round 5).
+    if (provider.currentStep == AttendanceStep.uploading ||
+        provider.currentStep == AttendanceStep.verifying ||
+        provider.currentStep == AttendanceStep.success ||
+        provider.currentStep == AttendanceStep.failed) {
+      return;
+    }
+    if (provider.capturedImage == null) return;
+
     // Step 1: Get location
     await provider.getLocation();
     if (provider.currentStep == AttendanceStep.failed) return;

@@ -171,7 +171,8 @@ router.post('/generate', async (req, res) => {
         if (s === 'vacation') { vacationCount++; continue; }
         if (s === 'holiday') { holidayCount++; continue; }
         if (s === 'absent') { absentCount++; continue; }
-        if (s === 'attend') { presentCount++; continue; }
+        // attend / sign_out / attend_full are all admin-set presence (#1B r5)
+        if (s === 'attend' || s === 'sign_out' || s === 'attend_full') { presentCount++; continue; }
         // permission / business_mission / sick: approved & excused — paid,
         // never deducted. (They used to fall through and count as absent.)
         if (s === 'permission' || s === 'business_mission' || s === 'sick') {

@@ -87,9 +87,18 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     }
   }
 
+  void _reload() {
+    final role = context.read<AuthProvider>().employee?.role;
+    if (role == UserRole.superAdmin && _selectedBranch == null) {
+      _loadBranches();
+    } else {
+      _loadEmployees();
+    }
+  }
+
   Future<void> _loadEmployees() async {
     try {
-      setState(() => _loading = true);
+      setState(() { _loading = true; _error = null; });
       final me = context.read<AuthProvider>().employee;
       String? branchId;
       if (me?.role == UserRole.superAdmin) {
@@ -199,7 +208,31 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         body: _loading
             ? Center(child: CircularProgressIndicator())
             : _error != null
-                ? Center(child: Text(_error!, style: TextStyle(color: AppTheme.checkOutRed)))
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 64,
+                              color: context.colors.textSecondary
+                                  .withValues(alpha: 0.4)),
+                          const SizedBox(height: 12),
+                          Text(_error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: context.colors.textSecondary)),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: Text(S.tryAgain),
+                            onPressed: _reload,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
                 : _branches.isEmpty
                     ? Center(child: Text(S.noBranchesFound, style: TextStyle(color: context.colors.textSecondary)))
                     : ListView.builder(
@@ -279,7 +312,31 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: TextStyle(color: AppTheme.checkOutRed)))
+              ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 64,
+                              color: context.colors.textSecondary
+                                  .withValues(alpha: 0.4)),
+                          const SizedBox(height: 12),
+                          Text(_error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: context.colors.textSecondary)),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: Text(S.tryAgain),
+                            onPressed: _reload,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
               : Column(
                   children: [
                     Padding(

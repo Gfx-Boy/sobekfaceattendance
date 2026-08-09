@@ -17,7 +17,10 @@ Color dayStatusColor(BuildContext context, String status) {
     case 'holiday':
       return Colors.teal;
     case 'attend':
+    case 'attend_full':
       return AppTheme.accentGreen;
+    case 'sign_out':
+      return AppTheme.checkOutRed;
     default:
       return context.colors.textMuted;
   }
@@ -34,6 +37,10 @@ String dayStatusLabel(String status) {
       return S.holiday;
     case 'attend':
       return S.signIn;
+    case 'sign_out':
+      return S.signOut;
+    case 'attend_full':
+      return '${S.signIn} + ${S.signOut}';
     case 'permission':
       return S.permission;
     case 'business_mission':
@@ -260,20 +267,32 @@ class AttendanceCalendar extends StatelessWidget {
   }) {
     // An admin-set "attend" day counts as attended even without a punch —
     // HR marking someone present via set-status must show on the sheet (#8).
-    final bool attended = checkIn != null || dayStatus == 'attend';
-    final bool completedDay = checkIn != null && checkOut != null;
+    // The "presence family" splits a day into two portions: sign-in (top) and
+    // sign-out (bottom), settable together or separately from Set Status
+    // (#1B round 5): 'attend' = sign-in, 'sign_out' = sign-out,
+    // 'attend_full' = both.
+    const presenceStatuses = {'attend', 'sign_out', 'attend_full'};
+    final bool statusOverride =
+        dayStatus != null && !presenceStatuses.contains(dayStatus);
+    final bool attended = checkIn != null ||
+        dayStatus == 'attend' ||
+        dayStatus == 'attend_full';
+    final bool signedOut = checkOut != null ||
+        dayStatus == 'sign_out' ||
+        dayStatus == 'attend_full';
+    final bool completedDay = attended && signedOut;
 
     Color topColor;
     Color bottomColor;
 
-    if (dayStatus != null && dayStatus != 'attend') {
+    if (statusOverride) {
       final isHoliday = dayStatus == 'holiday';
       final statusColor = isHoliday
           ? context.colors.textMuted.withValues(alpha: 0.15)
           : dayStatusColor(context, dayStatus).withValues(alpha: 0.25);
       topColor = statusColor;
       bottomColor = statusColor;
-    } else if (isWeekend && !attended) {
+    } else if (isWeekend && !attended && !signedOut) {
       // Branch weekly holiday — same amber + "Holiday" treatment as the HR
       // day-status grid so the two screens never look contradictory (#1 r4).
       topColor = AppTheme.warningAmber.withValues(alpha: 0.10);
@@ -284,6 +303,11 @@ class AttendanceCalendar extends StatelessWidget {
     } else if (attended) {
       topColor = AppTheme.accentGreen.withValues(alpha: 0.2);
       bottomColor = AppTheme.primaryBlue.withValues(alpha: 0.1);
+    } else if (signedOut) {
+      // Sign-out without a sign-in: tint the bottom half red like a normal
+      // sign-out so it reads consistently (#1A round 5).
+      topColor = context.colors.cardBg;
+      bottomColor = AppTheme.checkOutRed.withValues(alpha: 0.2);
     } else {
       topColor = context.colors.cardBg;
       bottomColor = context.colors.cardBg;
@@ -322,17 +346,17 @@ class AttendanceCalendar extends StatelessWidget {
                     // whole story for the day — show only its label, never a
                     // check-in/out time. Otherwise the cell contradicts itself
                     // (e.g. "Vacation" with an attend time next to it).
-                    if (dayStatus != null && dayStatus != 'attend') ...[
+                    if (statusOverride) ...[
                       const SizedBox(height: 1),
                       Text(
-                        dayStatusLabel(dayStatus),
+                        dayStatusLabel(dayStatus!),
                         style: TextStyle(
                           color: dayStatusColor(context, dayStatus),
                           fontSize: 8,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ] else if (dayStatus == 'attend' && checkIn == null) ...[
+                    ] else if (attended && checkIn == null) ...[
                       // Admin-set presence with no real punch time.
                       const SizedBox(height: 1),
                       Text(
@@ -343,7 +367,7 @@ class AttendanceCalendar extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ] else if (isWeekend && checkIn == null && checkOut == null) ...[
+                    ] else if (isWeekend && checkIn == null && !signedOut) ...[
                       // Branch weekly holiday label, matching the HR grid.
                       const SizedBox(height: 1),
                       Text(
@@ -379,8 +403,17 @@ class AttendanceCalendar extends StatelessWidget {
                     // Hide punch times entirely on a day with an explicit
                     // status override, so a vacation/absent/holiday day never
                     // also shows an attend/leave time (data-conflict fix).
-                    if ((dayStatus == null || dayStatus == 'attend') &&
-                        checkOut != null)
+                    if (!statusOverride && checkOut == null && signedOut)
+                      // Admin-set sign-out with no real punch time.
+                      Text(
+                        S.signOut,
+                        style: const TextStyle(
+                          color: AppTheme.checkOutRed,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    if (!statusOverride && checkOut != null)
                       Text(
                         checkOut,
                         style: const TextStyle(

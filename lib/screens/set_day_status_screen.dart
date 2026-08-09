@@ -720,9 +720,21 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
               // Explicit status wins over the branch weekly-holiday rule.
               // Colors/labels come from the shared day-status vocabulary so
               // this grid and the employee attendance sheet always agree.
+              // Presence statuses split the cell into a sign-in (top) and
+              // sign-out (bottom) portion (#1B round 5).
               Color? bg;
+              Color? topBg;
+              Color? bottomBg;
               String? labelText;
-              if (st != null && st.isNotEmpty) {
+              if (st == 'attend' || st == 'sign_out' || st == 'attend_full') {
+                if (st != 'sign_out') {
+                  topBg = AppTheme.accentGreen.withValues(alpha: 0.25);
+                }
+                if (st != 'attend') {
+                  bottomBg = AppTheme.checkOutRed.withValues(alpha: 0.25);
+                }
+                labelText = dayStatusLabel(st!);
+              } else if (st != null && st.isNotEmpty) {
                 bg = dayStatusColor(context, st).withValues(alpha: 0.25);
                 labelText = dayStatusLabel(st);
               } else if (isWeeklyHoliday) {
@@ -745,22 +757,42 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
                             : context.colors.surfaceBorder,
                         width: isToday ? 1.5 : 0.5),
                   ),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: Stack(
                       children: [
-                        Text('$day',
-                            style: TextStyle(
-                                color: context.colors.textPrimary,
-                                fontWeight: isToday
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
-                                fontSize: 13)),
-                        if (labelText != null)
-                          Text(labelText,
-                              style: TextStyle(
-                                  color: context.colors.textSecondary,
-                                  fontSize: 9)),
+                        if (topBg != null || bottomBg != null)
+                          Column(
+                            children: [
+                              Expanded(
+                                  child: Container(
+                                      width: double.infinity, color: topBg)),
+                              Expanded(
+                                  child: Container(
+                                      width: double.infinity,
+                                      color: bottomBg)),
+                            ],
+                          ),
+                        Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text('$day',
+                                  style: TextStyle(
+                                      color: context.colors.textPrimary,
+                                      fontWeight: isToday
+                                          ? FontWeight.w800
+                                          : FontWeight.w600,
+                                      fontSize: 13)),
+                              if (labelText != null)
+                                Text(labelText,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: context.colors.textSecondary,
+                                        fontSize: 8)),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -783,6 +815,10 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
         return S.absent;
       case 'attend':
         return S.signIn;
+      case 'sign_out':
+        return S.signOut;
+      case 'attend_full':
+        return '${S.signIn} + ${S.signOut}';
       case 'permission':
         return S.permission;
       case 'business_mission':
@@ -800,7 +836,7 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
       );
       return;
     }
-    final statuses = ['attend', 'vacation', 'absent', 'holiday'];
+    final statuses = ['attend', 'sign_out', 'attend_full', 'vacation', 'absent', 'holiday'];
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -862,7 +898,7 @@ class _SetDayStatusScreenState extends State<SetDayStatusScreen> {
   }
 
   Future<void> _pickStatus(String date) async {
-    final statuses = ['attend', 'vacation', 'absent', 'holiday'];
+    final statuses = ['attend', 'sign_out', 'attend_full', 'vacation', 'absent', 'holiday'];
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(

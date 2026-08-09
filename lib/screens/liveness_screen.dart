@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:face_liveness_detector/face_liveness_detector.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../providers/attendance_provider.dart';
@@ -21,6 +22,8 @@ class _LivenessScreenState extends State<LivenessScreen> {
   String? _sessionId;
   String? _error;
   bool _preparing = true;
+  bool _openGpsSettings = false;
+  bool _openAppSettings = false;
 
   @override
   void initState() {
@@ -38,12 +41,20 @@ class _LivenessScreenState extends State<LivenessScreen> {
     await provider.getLocation();
     if (!mounted) return;
     if (provider.currentPosition == null) {
+      // Remember WHY location failed so Try Again can open the right
+      // settings screen (GPS off / permission denied) like the old flow
+      // did (#2E round 5).
+      final locEx = provider.locationException;
       setState(() {
         _error = provider.error ?? S.verificationFailed;
+        _openGpsSettings = locEx?.needsServiceEnable ?? false;
+        _openAppSettings = locEx?.needsSettings ?? false;
         _preparing = false;
       });
       return;
     }
+    _openGpsSettings = false;
+    _openAppSettings = false;
     try {
       final sid = await ApiService().createLivenessSession();
       if (!mounted) return;
@@ -71,8 +82,11 @@ class _LivenessScreenState extends State<LivenessScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Follows the app's light/dark theme — the previous hard-black screens
+    // clashed with the rest of the app in light mode (#2C round 5). The
+    // native AWS scan view itself keeps Amazon's fixed design (its colour
+    // flashes ARE the security check).
     return Scaffold(
-      backgroundColor: Colors.black,
       body: SafeArea(
         child: Builder(
           builder: (context) {
@@ -81,11 +95,11 @@ class _LivenessScreenState extends State<LivenessScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const CircularProgressIndicator(color: Colors.white),
+                    const CircularProgressIndicator(),
                     const SizedBox(height: 16),
                     Text(
                       S.preparingLivenessCheck,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: context.colors.textPrimary),
                     ),
                   ],
                 ),
@@ -104,17 +118,25 @@ class _LivenessScreenState extends State<LivenessScreen> {
                       Text(
                         _error!,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(color: context.colors.textPrimary),
                       ),
                       const SizedBox(height: 24),
                       ElevatedButton(
-                        onPressed: _start,
+                        onPressed: () async {
+                          if (_openGpsSettings) {
+                            await Geolocator.openLocationSettings();
+                          } else if (_openAppSettings) {
+                            await Geolocator.openAppSettings();
+                          }
+                          _start();
+                        },
                         child: Text(S.tryAgain),
                       ),
                       TextButton(
                         onPressed: () => Navigator.pop(context),
                         child: Text(S.cancel,
-                            style: const TextStyle(color: Colors.white70)),
+                            style: TextStyle(
+                                color: context.colors.textSecondary)),
                       ),
                     ],
                   ),

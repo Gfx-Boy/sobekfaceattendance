@@ -233,7 +233,7 @@ router.post('/:id/day-status', async (req, res) => {
     if (!date || !status) {
       return res.status(400).json({ error: 'date and status are required' });
     }
-    if (!['vacation', 'holiday', 'absent', 'attend', 'permission', 'business_mission'].includes(status)) {
+    if (!['vacation', 'holiday', 'absent', 'attend', 'sign_out', 'attend_full', 'permission', 'business_mission'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
