@@ -174,8 +174,11 @@ const ACCESS_TOKEN_SECRET =
   process.env.ACCESS_TOKEN_SECRET || 'face-attendance-access-secret';
 const REFRESH_TOKEN_SECRET =
   process.env.REFRESH_TOKEN_SECRET || 'face-attendance-refresh-secret';
+// 12h so a token comfortably outlives a full working day — the app also
+// auto-refreshes on 401 and on foreground-resume, but a longer window keeps
+// slow networks from ever surfacing a token-age error (round 5 follow-up).
 const ACCESS_TOKEN_EXPIRES_IN =
-  process.env.ACCESS_TOKEN_EXPIRES_IN || '1h';
+  process.env.ACCESS_TOKEN_EXPIRES_IN || '12h';
 const REFRESH_TOKEN_EXPIRES_IN =
   process.env.REFRESH_TOKEN_EXPIRES_IN || '30d';
 

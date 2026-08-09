@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_session.dart';
 import '../models/employee.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 
-class AuthProvider extends ChangeNotifier {
+class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _employeeIdKey = 'employee_id';
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
@@ -38,6 +39,38 @@ class AuthProvider extends ChangeNotifier {
         }
       });
     };
+    // A 401 mid-request means the access token aged out (e.g. the app slept
+    // in the background past the expiry and the auto-refresh timer never
+    // fired). Refresh silently so the request can be retried — the user
+    // should never see empty screens because of token age.
+    ApiService.onUnauthorized = () async {
+      if (!hasRefreshToken) return false;
+      return refreshSession(silent: true);
+    };
+    // Timers do not run while Android has the app suspended — refresh
+    // proactively whenever the app returns to the foreground.
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!hasRefreshToken || _employee == null) return;
+    final expiry = _accessTokenExpiry;
+    final needsRefresh = expiry == null ||
+        expiry.difference(DateTime.now()) < const Duration(minutes: 5);
+    if (needsRefresh) {
+      refreshSession(silent: true);
+    } else {
+      _scheduleAutoRefresh();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cancelAutoRefresh();
+    super.dispose();
   }
 
   Employee? get employee => _employee;

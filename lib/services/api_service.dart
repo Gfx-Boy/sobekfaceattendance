@@ -35,6 +35,12 @@ class ApiService {
   static void Function()? onSessionInvalidated;
   static const _sessionInvalidatedMarker = 'another device';
 
+  /// Invoked when a request comes back 401 (expired access token). Should
+  /// refresh the session and return true on success — the failed request is
+  /// then retried once transparently, so the user never sees empty screens
+  /// just because the token aged out (round 5 follow-up).
+  static Future<bool> Function()? onUnauthorized;
+
   ApiService({String? baseUrl, http.Client? client})
       : baseUrl = baseUrl ?? AppConfig.apiBaseUrl,
         _client = _SessionAwareClient(client ?? http.Client());
@@ -57,13 +63,26 @@ class ApiService {
   }
 
   /// Wraps any network call and converts low-level exceptions into friendly
-  /// [ApiException] messages.
-  Future<T> _call<T>(Future<T> Function() fn) async {
+  /// [ApiException] messages. A 401 triggers ONE silent token refresh and
+  /// retry before the error is surfaced.
+  Future<T> _call<T>(Future<T> Function() fn, {bool retried = false}) async {
     try {
       return await fn();
     } on ApiException catch (e) {
       if (e.message.contains(_sessionInvalidatedMarker)) {
         onSessionInvalidated?.call();
+        rethrow;
+      }
+      if (!retried &&
+          (e.message.contains('(401)') || e.message.contains('(403)')) &&
+          onUnauthorized != null) {
+        bool refreshed = false;
+        try {
+          refreshed = await onUnauthorized!();
+        } catch (_) {}
+        if (refreshed) {
+          return _call(fn, retried: true);
+        }
       }
       rethrow;
     } on TimeoutException {
@@ -170,8 +189,9 @@ class ApiService {
           detail = body['error']?.toString() ?? response.body;
         } catch (_) {}
 
-        throw ApiException(
-            'Token refresh failed (${response.statusCode}): $detail');
+        // No "(status)" pattern here on purpose — the 401-refresh-retry in
+        // _call must never recurse into the refresh endpoint itself.
+        throw ApiException('Token refresh failed: $detail');
       });
 
   // ---------- Attendance ----------
