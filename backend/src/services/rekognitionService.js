@@ -389,7 +389,14 @@ async function detectStaticSpoof(imagePathA, imagePathB) {
 const LIVENESS_MIN_CONFIDENCE = parseFloat(process.env.LIVENESS_MIN_CONFIDENCE || '75');
 
 async function createLivenessSession() {
-  const res = await rekognitionClient.send(new CreateFaceLivenessSessionCommand({}));
+  // FaceMovementChallenge = the scan WITHOUT the colour-flash sequence — the
+  // client found the flashing harsh on the eyes. Liveness is then proven by
+  // 3D face movement analysis alone (still an AWS-managed anti-spoof check).
+  const res = await rekognitionClient.send(new CreateFaceLivenessSessionCommand({
+    Settings: {
+      ChallengeVersions: process.env.LIVENESS_CHALLENGE || 'FaceMovementChallenge_1.0.0',
+    },
+  }));
   return res.SessionId;
 }
 

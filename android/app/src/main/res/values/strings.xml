@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Override the AWS liveness library's "REC" recording chip label with
+         an empty string — the client asked for the REC badge to go. -->
+    <string name="amplify_ui_liveness_challenge_recording_indicator_label"></string>
+</resources>
