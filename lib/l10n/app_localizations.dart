@@ -103,6 +103,7 @@ class S {
   static String get preparingLivenessCheck => _t('Preparing secure face check…', 'جارٍ تجهيز فحص الوجه الآمن…');
   static String get livenessScanFailed => _t('Face check was not completed. Please try again in good lighting.', 'لم يكتمل فحص الوجه. حاول مرة أخرى في إضاءة جيدة.');
   static String get updateAppRequired => _t('Please update the app to the latest version to mark attendance.', 'يرجى تحديث التطبيق إلى أحدث إصدار لتسجيل الحضور.');
+  static String get verifying => _t('Verifying…', 'جارٍ التحقق…');
 
   // ── Attendance ──
   static String get attendance => _t('Attendance', 'الحضور');

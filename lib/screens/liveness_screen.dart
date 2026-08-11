@@ -18,17 +18,39 @@ class LivenessScreen extends StatefulWidget {
   State<LivenessScreen> createState() => _LivenessScreenState();
 }
 
-class _LivenessScreenState extends State<LivenessScreen> {
+class _LivenessScreenState extends State<LivenessScreen>
+    with WidgetsBindingObserver {
   String? _sessionId;
   String? _error;
   bool _preparing = true;
+  bool _submitting = false;
   bool _openGpsSettings = false;
   bool _openAppSettings = false;
+  Future<void>? _locationFuture;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Coming back from the GPS/app settings the Try Again button opened:
+    // retry automatically instead of making the user tap again (round 6 —
+    // the client had to keep re-tapping after enabling location).
+    if (state == AppLifecycleState.resumed &&
+        _error != null &&
+        (_openGpsSettings || _openAppSettings)) {
+      _start();
+    }
   }
 
   Future<void> _start() async {
@@ -36,25 +58,13 @@ class _LivenessScreenState extends State<LivenessScreen> {
       _preparing = true;
       _error = null;
       _sessionId = null;
+      _openGpsSettings = false;
+      _openAppSettings = false;
     });
     final provider = context.read<AttendanceProvider>();
-    await provider.getLocation();
-    if (!mounted) return;
-    if (provider.currentPosition == null) {
-      // Remember WHY location failed so Try Again can open the right
-      // settings screen (GPS off / permission denied) like the old flow
-      // did (#2E round 5).
-      final locEx = provider.locationException;
-      setState(() {
-        _error = provider.error ?? S.verificationFailed;
-        _openGpsSettings = locEx?.needsServiceEnable ?? false;
-        _openAppSettings = locEx?.needsSettings ?? false;
-        _preparing = false;
-      });
-      return;
-    }
-    _openGpsSettings = false;
-    _openAppSettings = false;
+    // Fetch location IN PARALLEL with the scan — GPS must never hold the
+    // face check hostage; it's only needed at submission time (round 6).
+    _locationFuture = provider.getLocation();
     try {
       final sid = await ApiService().createLivenessSession();
       if (!mounted) return;
@@ -71,11 +81,33 @@ class _LivenessScreenState extends State<LivenessScreen> {
     }
   }
 
-  void _onScanComplete() {
+  Future<void> _onScanComplete() async {
     final auth = context.read<AuthProvider>();
     final provider = context.read<AttendanceProvider>();
     final me = auth.employee;
     if (me == null || _sessionId == null) return;
+    setState(() => _submitting = true);
+
+    // Make sure the parallel location fetch finished; if it failed, try one
+    // fresh fix now (the user may have enabled GPS during the scan).
+    try {
+      await _locationFuture;
+    } catch (_) {}
+    if (provider.currentPosition == null) {
+      await provider.getLocation();
+    }
+    if (!mounted) return;
+    if (provider.currentPosition == null) {
+      final locEx = provider.locationException;
+      setState(() {
+        _submitting = false;
+        _error = provider.error ?? S.verificationFailed;
+        _openGpsSettings = locEx?.needsServiceEnable ?? false;
+        _openAppSettings = locEx?.needsSettings ?? false;
+      });
+      return;
+    }
+
     provider.submitAttendanceWithLiveness(me.id, _sessionId!);
     Navigator.pushReplacementNamed(context, '/verify');
   }
@@ -90,7 +122,7 @@ class _LivenessScreenState extends State<LivenessScreen> {
       body: SafeArea(
         child: Builder(
           builder: (context) {
-            if (_preparing) {
+            if (_preparing || _submitting) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -98,7 +130,7 @@ class _LivenessScreenState extends State<LivenessScreen> {
                     const CircularProgressIndicator(),
                     const SizedBox(height: 16),
                     Text(
-                      S.preparingLivenessCheck,
+                      _submitting ? S.verifying : S.preparingLivenessCheck,
                       style: TextStyle(color: context.colors.textPrimary),
                     ),
                   ],

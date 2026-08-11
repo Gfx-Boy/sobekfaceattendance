@@ -148,6 +148,10 @@ class AttendanceProvider extends ChangeNotifier {
     try {
       _currentStep = AttendanceStep.gettingLocation;
       _locationException = null;
+      // Drop any stale fix — a failed fetch must NEVER fall back to an old
+      // position, or attendance could be marked with yesterday's location
+      // while GPS is off (found in client video, round 6).
+      _currentPosition = null;
       notifyListeners();
 
       _currentPosition = await _locationService.getCurrentLocation();
