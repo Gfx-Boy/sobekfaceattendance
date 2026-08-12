@@ -392,9 +392,18 @@ async function createLivenessSession() {
   // FaceMovementChallenge = the scan WITHOUT the colour-flash sequence — the
   // client found the flashing harsh on the eyes. Liveness is then proven by
   // 3D face movement analysis alone (still an AWS-managed anti-spoof check).
+  // NOTE the field is ChallengePreferences (a typed list) — an earlier
+  // attempt used a non-existent `ChallengeVersions` key, which the AWS SDK
+  // silently dropped, so sessions kept defaulting to the light challenge.
+  const challengeType = process.env.LIVENESS_CHALLENGE || 'FaceMovementChallenge';
   const res = await rekognitionClient.send(new CreateFaceLivenessSessionCommand({
     Settings: {
-      ChallengeVersions: process.env.LIVENESS_CHALLENGE || 'FaceMovementChallenge_1.0.0',
+      ChallengePreferences: [
+        {
+          Type: challengeType,
+          Versions: { Minimum: '1.0.0', Maximum: '1.0.0' },
+        },
+      ],
     },
   }));
   return res.SessionId;
