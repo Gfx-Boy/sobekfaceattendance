@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
+import '../providers/workspace_provider.dart';
 
 /// Maps raw ApiException messages to short, user-friendly strings.
 String _friendlyError(String? raw) {
@@ -84,6 +87,18 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
+      // Sign in to the web app with the same credentials so messenger, CRM and
+      // shifts have a session (points 12, 18, 20, 25). This is the only moment
+      // the password is in hand; only the returned token is kept, never the
+      // password itself. Deliberately not awaited into the login result - if
+      // the web side is down or this employee has no account there yet, that
+      // must not stop them clocking in.
+      final email = _emailController.text.trim();
+      final password = _passwordController.text.trim();
+      if (password.isNotEmpty) {
+        unawaited(context.read<WorkspaceProvider>().link(email, password));
+      }
+
       Navigator.pushReplacementNamed(context, '/main');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(

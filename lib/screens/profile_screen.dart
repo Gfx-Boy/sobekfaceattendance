@@ -6,6 +6,7 @@ import '../config/app_theme.dart';
 import '../l10n/app_localizations.dart';
 import '../models/employee.dart';
 import '../providers/auth_provider.dart';
+import '../providers/workspace_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
@@ -199,7 +200,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 );
                 if (confirmed == true) {
+                  // Drop the web-app session too, or the next person to sign in
+                  // on this phone would inherit the previous one's messenger.
+                  final workspace = context.read<WorkspaceProvider>();
                   await auth.logout();
+                  await workspace.unlink();
                   if (context.mounted) {
                     Navigator.pushReplacementNamed(context, '/login');
                   }

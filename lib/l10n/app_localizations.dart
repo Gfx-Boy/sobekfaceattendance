@@ -680,4 +680,37 @@ class S {
   static List<String> get weekDaysSun => isArabic
       ? ['أحد', 'اثن', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت']
       : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // ── Workspace: features mirrored from the web app (points 18, 20, 25) ──
+  static String get messenger => _t('Messenger', 'المراسلة');
+  static String get messages => _t('Messages', 'الرسائل');
+  static String get noConversations =>
+      _t('No conversations yet', 'لا توجد محادثات بعد');
+  static String get noMessagesYet =>
+      _t('No messages yet. Say hello.', 'لا توجد رسائل بعد. ابدأ المحادثة.');
+  static String get typeAMessage => _t('Type a message', 'اكتب رسالة');
+  static String get send => _t('Send', 'إرسال');
+  static String get online => _t('Online', 'متصل');
+  static String get offline => _t('Offline', 'غير متصل');
+
+  static String get crm => _t('CRM', 'إدارة العملاء');
+  static String get leads => _t('Leads', 'العملاء المحتملون');
+  static String get deals => _t('Deals', 'الصفقات');
+  static String get noLeads => _t('No leads', 'لا يوجد عملاء محتملون');
+  static String get noDeals => _t('No deals', 'لا توجد صفقات');
+
+  static String get shifts => _t('Shifts', 'الورديات');
+  static String get noShifts => _t('No shifts', 'لا توجد ورديات');
+  static String get nightShift => _t('Night shift', 'وردية ليلية');
+  // breakLabel and workingHours already exist above - reused, not redefined.
+  static String employeesCount(int n) =>
+      isArabic ? '$n موظف' : (n == 1 ? '1 employee' : '$n employees');
+
+  /// Shown when the phone has no session on the web app - the employee has not
+  /// been given a web account yet, or the sign-in there did not succeed.
+  static String get workspaceNotLinked => _t(
+      'This feature needs your web account. Sign out and sign in again, or ask your administrator to set one up.',
+      'تحتاج هذه الميزة إلى حسابك على الويب. سجّل الخروج ثم الدخول مرة أخرى، أو اطلب من المسؤول إنشاء حساب لك.');
+  static String get workspaceUnavailable =>
+      _t('Workspace unavailable', 'مساحة العمل غير متاحة');
 }

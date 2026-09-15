@@ -35,6 +35,10 @@ import 'screens/payslips_screen.dart';
 import 'screens/manage_payslips_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/messenger_screen.dart';
+import 'screens/crm_screen.dart';
+import 'screens/shifts_screen.dart';
+import 'providers/workspace_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'services/notification_service.dart';
@@ -71,6 +75,9 @@ class FaceAttendanceApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LocaleProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AttendanceProvider()),
+        // Web-app features (messenger, CRM, shifts). Independent of
+        // AuthProvider so a workspace problem cannot block attendance.
+        ChangeNotifierProvider(create: (_) => WorkspaceProvider()..restore()),
       ],
       child: Consumer2<ThemeProvider, LocaleProvider>(
         builder: (context, themeProvider, localeProvider, child) {
@@ -121,6 +128,10 @@ class FaceAttendanceApp extends StatelessWidget {
           '/manage-payslips': (_) => const ManagePayslipsScreen(),
           '/reports': (_) => const ReportsScreen(),
           '/settings': (_) => const SettingsScreen(),
+          // Mirrored from the web app — points 18, 20, 25.
+          '/messenger': (_) => const MessengerScreen(),
+          '/crm': (_) => const CrmScreen(),
+          '/shifts': (_) => const ShiftsScreen(),
         },
         onGenerateRoute: (settings) {
           if (settings.name == '/edit-employee') {
