@@ -146,9 +146,16 @@ class WorkspaceApiService {
     final data = await _post('login', {
       'email': email,
       'password': password,
-      // Employees are staff on the web side; asking for the Hrm module keeps a
-      // client or vendor account from signing in through the attendance app.
-      'module': 'Hrm',
+      // NO 'module' parameter. Sending module=Hrm looked like sensible
+      // defence-in-depth, but the web side rejects every type in
+      // $not_emp_type for that module - superadmin and company included - so
+      // an administrator signing in got "Staff members are the only ones
+      // allowed to log in to this application" and no workspace at all. It
+      // also fails when the Hrm add-on is not activated for that company.
+      //
+      // The check was redundant anyway: this call only happens after the user
+      // has already authenticated against the attendance backend, and the web
+      // side still enforces is_enable_login and the validity period.
     });
 
     final token = (data is Map && data['token'] is String)

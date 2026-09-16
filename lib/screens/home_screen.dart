@@ -287,9 +287,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         onTap: () => Navigator.pushNamed(context, '/settings'),
                       ),
                     ],
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
+                    // From the web app - review points 18, 20, 25. Added to
+                    // the FIRST grid of each role branch only: HR renders three
+                    // quick-action grids and employees two, so inserting into
+                    // every grid showed these tiles two or three times over.
                     _QuickAction(
                       icon: Icons.forum_outlined,
                       label: S.messenger,
@@ -385,9 +386,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         Navigator.pushNamed(context, '/liveness');
                       },
                     ),
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
+                    // From the web app - review points 18, 20, 25. Added to
+                    // the FIRST grid of each role branch only: HR renders three
+                    // quick-action grids and employees two, so inserting into
+                    // every grid showed these tiles two or three times over.
                     _QuickAction(
                       icon: Icons.forum_outlined,
                       label: S.messenger,
@@ -439,27 +441,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       onTap: () =>
                           Navigator.pushNamed(context, '/manage-requests'),
                     ),
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
-                    _QuickAction(
-                      icon: Icons.forum_outlined,
-                      label: S.messenger,
-                      color: const Color(0xFF0EA5E9),
-                      onTap: () => Navigator.pushNamed(context, '/messenger'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.handshake_outlined,
-                      label: S.crm,
-                      color: const Color(0xFFF59E0B),
-                      onTap: () => Navigator.pushNamed(context, '/crm'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.schedule_outlined,
-                      label: S.shifts,
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () => Navigator.pushNamed(context, '/shifts'),
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -496,27 +477,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: S.setDayStatusTitle,
                       color: const Color(0xFF9B59B6),
                       onTap: () => Navigator.pushNamed(context, '/set-day-status'),
-                    ),
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
-                    _QuickAction(
-                      icon: Icons.forum_outlined,
-                      label: S.messenger,
-                      color: const Color(0xFF0EA5E9),
-                      onTap: () => Navigator.pushNamed(context, '/messenger'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.handshake_outlined,
-                      label: S.crm,
-                      color: const Color(0xFFF59E0B),
-                      onTap: () => Navigator.pushNamed(context, '/crm'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.schedule_outlined,
-                      label: S.shifts,
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () => Navigator.pushNamed(context, '/shifts'),
                     ),
                   ],
                 ),
@@ -611,9 +571,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       onTap: () =>
                           Navigator.pushNamed(context, '/create-request'),
                     ),
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
+                    // From the web app - review points 18, 20, 25. Added to
+                    // the FIRST grid of each role branch only: HR renders three
+                    // quick-action grids and employees two, so inserting into
+                    // every grid showed these tiles two or three times over.
                     _QuickAction(
                       icon: Icons.forum_outlined,
                       label: S.messenger,
@@ -667,27 +628,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: AppTheme.checkOutPink,
                       onTap: () =>
                           Navigator.pushNamed(context, '/notifications'),
-                    ),
-                    // Mirrored from the web app - review points 18, 20, 25.
-                    // Shown to every role; the screens themselves explain it
-                    // when the employee has no web account yet.
-                    _QuickAction(
-                      icon: Icons.forum_outlined,
-                      label: S.messenger,
-                      color: const Color(0xFF0EA5E9),
-                      onTap: () => Navigator.pushNamed(context, '/messenger'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.handshake_outlined,
-                      label: S.crm,
-                      color: const Color(0xFFF59E0B),
-                      onTap: () => Navigator.pushNamed(context, '/crm'),
-                    ),
-                    _QuickAction(
-                      icon: Icons.schedule_outlined,
-                      label: S.shifts,
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () => Navigator.pushNamed(context, '/shifts'),
                     ),
                   ],
                 ),

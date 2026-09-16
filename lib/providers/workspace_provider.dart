@@ -101,7 +101,11 @@ class WorkspaceProvider extends ChangeNotifier {
   /// the screen looking empty. Returns null when it failed.
   Future<T?> _guard<T>(Future<T> Function() fn) async {
     if (!isLinked) {
-      _linkError = 'not-linked';
+      // Keep whatever link() reported. Overwriting it with the generic
+      // 'not-linked' threw away the only useful part - the server's own
+      // reason, e.g. "Staff members are the only ones allowed to log in" -
+      // and left every failure looking like a missing account.
+      _linkError ??= 'not-linked';
       notifyListeners();
       return null;
     }
