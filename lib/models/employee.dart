@@ -61,10 +61,14 @@ class Employee {
 
   factory Employee.fromJson(Map<String, dynamic> json) {
     return Employee(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      email: json['email'] as String,
-      department: json['department'] as String,
+      // Tolerate a missing field rather than throwing. A hard cast here meant
+      // one absent key - `department`, on accounts created from the web - blew
+      // up Employee.fromJson, and the TypeError surfaced as the generic
+      // "Something went wrong", giving no hint that a field was the problem.
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? json['email'] ?? '').toString(),
+      email: (json['email'] ?? '').toString(),
+      department: (json['department'] ?? '').toString(),
       referenceImageUrl: json['reference_image_url'] as String?,
       role: UserRole.values.firstWhere(
         (e) => e.name == json['role'],
