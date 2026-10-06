@@ -1,9 +1,7 @@
 class AppConfig {
-  // Backend API base URL - AWS App Runner (permanent, no tunnel needed)
-  //
-  // Attendance stays here: face recognition, AWS Face Liveness and the
-  // geofence checks only exist on this backend.
-  static const String apiBaseUrl = 'https://evrw6qmfh7.us-east-1.awsapprunner.com/api';
+  // Unified Backend API base URL - Inukta SaaS (Laravel / MySQL)
+  // Both Mobile Attendance & SaaS features now use the same authoritative database.
+  static const String apiBaseUrl = 'https://app.inukta.com/api';
 
   // The web SaaS (Laravel/Sanctum). Messenger, CRM and shifts read from here so
   // the phone and the web show the same data - review points 12, 18, 20 and 25.
