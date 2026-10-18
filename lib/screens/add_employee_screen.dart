@@ -26,7 +26,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _positionController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
   final _radiusController = TextEditingController(text: '200');
@@ -88,7 +87,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _phoneController.dispose();
-    _positionController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     _radiusController.dispose();
@@ -166,7 +164,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
         employeeType: _selectedType,
         branchId: _selectedBranchId,
         branchName: _selectedBranchName,
-        position: _positionController.text.trim().isNotEmpty ? _positionController.text.trim() : null,
         phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
         allowedLatitude: _enableGeofence && _latitudeController.text.isNotEmpty
             ? double.tryParse(_latitudeController.text.trim())
@@ -245,8 +242,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                 'Management': S.management,
                 'other': S.other,
               }, (v) => setState(() => _selectedDepartment = v!)),
-              const SizedBox(height: 12),
-              _buildField(_positionController, S.positionOptional, Icons.badge_outlined),
               const SizedBox(height: 12),
               _buildField(_phoneController, S.phone, Icons.phone_outlined, keyboardType: TextInputType.phone, validator: (v) {
                 if (v == null || v.isEmpty) return S.phoneRequired;

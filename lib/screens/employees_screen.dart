@@ -107,6 +107,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         branchId = me?.branchId;
       }
       List<Employee> employees = await ApiService().getAllEmployees(branchId: branchId);
+      // Filter out superAdmin from directory
+      employees = employees.where((e) => e.role != UserRole.superAdmin).toList();
       // HR should not see branchAdmin in the list
       if (me?.role == UserRole.hr) {
         employees = employees.where((e) => e.role != UserRole.branchAdmin).toList();
@@ -125,7 +127,6 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
 
   Future<void> _toggleHold(Employee emp) async {
     final newHoldState = !emp.isOnHold;
-    final action = newHoldState ? 'hold' : 'unhold';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

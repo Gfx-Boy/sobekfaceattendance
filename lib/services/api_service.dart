@@ -321,7 +321,10 @@ class ApiService {
     required File referenceImage,
   }) =>
       _call(() async {
-        final uri = Uri.parse('$baseUrl/employees/register');
+        // Employee creation is handled by the Laravel mobile CRUD endpoint.
+        // The old Node endpoint used /employees/register; that route no longer
+        // exists on the unified API and returns 405.
+        final uri = Uri.parse('$baseUrl/employees');
 
         final request = http.MultipartRequest('POST', uri)
           ..fields['name'] = name
@@ -760,7 +763,10 @@ class ApiService {
     double? allowedRadius,
   }) =>
       _call(() async {
-        final uri = Uri.parse('$baseUrl/employees/register');
+        // Keep this aligned with the deployed Laravel route (POST
+        // /api/employees). Using /employees/register returns HTTP 405 because
+        // Laravel only exposes GET/PUT/DELETE for that path parameter.
+        final uri = Uri.parse('$baseUrl/employees');
         final request = http.MultipartRequest('POST', uri)
           ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['name'] = name

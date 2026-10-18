@@ -22,7 +22,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _departmentController;
-  late TextEditingController _positionController;
   late TextEditingController _phoneController;
   late TextEditingController _addressController;
   late TextEditingController _salaryController;
@@ -48,7 +47,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     super.initState();
     _nameController = TextEditingController(text: widget.employee.name);
     _departmentController = TextEditingController(text: widget.employee.department);
-    _positionController = TextEditingController(text: widget.employee.position ?? '');
     _phoneController = TextEditingController(text: widget.employee.phone ?? '');
     _addressController = TextEditingController(text: widget.employee.address ?? '');
     _salaryController = TextEditingController(
@@ -86,7 +84,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   void dispose() {
     _nameController.dispose();
     _departmentController.dispose();
-    _positionController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
     _salaryController.dispose();
@@ -147,7 +144,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
         'department': _departmentController.text.trim(),
         'role': _selectedRole,
         'employee_type': _selectedType,
-        'position': _positionController.text.trim(),
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
         'basic_salary':
@@ -302,12 +298,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                   validator: (v) => (v == null || v.isEmpty) ? S.required : null,
                 );
               }),
-              SizedBox(height: 12),
-              TextFormField(
-                controller: _positionController,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: InputDecoration(labelText: S.position, prefixIcon: Icon(Icons.badge_outlined, color: context.colors.textSecondary)),
-              ),
               SizedBox(height: 12),
               TextFormField(
                 controller: _phoneController,

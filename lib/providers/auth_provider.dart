@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -10,6 +11,7 @@ import '../services/notification_service.dart';
 
 class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const _employeeIdKey = 'employee_id';
+  static const _employeeDataKey = 'saved_employee_data';
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
   static const _accessTokenExpiryMsKey = 'access_token_expiry_ms';
@@ -91,8 +93,18 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
         expiryMs != null ? DateTime.fromMillisecondsSinceEpoch(expiryMs) : null;
     _apiService.setAccessToken(_accessToken);
 
+    // Restore cached employee object immediately if available so offline/network delay doesn't show logged out
+    final savedEmployeeJson = prefs.getString(_employeeDataKey);
+    if (savedEmployeeJson != null && savedEmployeeJson.isNotEmpty) {
+      try {
+        _employee = Employee.fromJson(jsonDecode(savedEmployeeJson) as Map<String, dynamic>);
+      } catch (e) {
+        debugPrint('Failed to parse cached employee: $e');
+      }
+    }
+
     final employeeId = prefs.getString(_employeeIdKey);
-    if (employeeId == null && (_refreshToken == null || _refreshToken!.isEmpty)) {
+    if (employeeId == null && (_refreshToken == null || _refreshToken!.isEmpty) && _employee == null) {
       return;
     }
 
@@ -101,21 +113,45 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
 
       if (_refreshToken != null && _refreshToken!.isNotEmpty) {
-        final session = await _apiService.refreshLoginToken(_refreshToken!);
-        await _persistSession(session, prefs);
-        _error = null;
-        return;
+        try {
+          final session = await _apiService.refreshLoginToken(_refreshToken!);
+          await _persistSession(session, prefs);
+          _error = null;
+          return;
+        } catch (refreshErr) {
+          debugPrint('Token refresh failed: $refreshErr');
+          final errStr = refreshErr.toString().toLowerCase();
+          if (errStr.contains('401') || errStr.contains('unauthorized') || errStr.contains('invalid token')) {
+            await _clearSavedSession(prefs);
+            _employee = null;
+            _apiService.setAccessToken(null);
+            _error = refreshErr.toString();
+            return;
+          }
+          // On non-401 (e.g. offline/network), keep cached employee
+        }
       }
 
       if (employeeId != null) {
-        _employee = await _apiService.getEmployee(employeeId);
-        _error = null;
+        try {
+          _employee = await _apiService.getEmployee(employeeId);
+          if (_employee != null) {
+            await prefs.setString(_employeeDataKey, jsonEncode(_employee!.toJson()));
+          }
+          _error = null;
+        } catch (fetchErr) {
+          debugPrint('Get employee failed: $fetchErr');
+          if (_employee == null) {
+            _error = fetchErr.toString();
+          }
+        }
       }
     } catch (e) {
       _error = e.toString();
-      await _clearSavedSession(prefs);
-      _employee = null;
-      _apiService.setAccessToken(null);
+      if (_employee == null) {
+        await _clearSavedSession(prefs);
+        _apiService.setAccessToken(null);
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -259,6 +295,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     _apiService.setAccessToken(_accessToken);
 
     await prefs.setString(_employeeIdKey, _employee!.id);
+    await prefs.setString(_employeeDataKey, jsonEncode(_employee!.toJson()));
 
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await prefs.setString(_accessTokenKey, _accessToken!);
@@ -291,6 +328,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _clearSavedSession(SharedPreferences prefs) async {
     await prefs.remove(_employeeIdKey);
+    await prefs.remove(_employeeDataKey);
     await prefs.remove(_accessTokenKey);
     await prefs.remove(_refreshTokenKey);
     await prefs.remove(_accessTokenExpiryMsKey);

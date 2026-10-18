@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../config/app_config.dart';
 
 enum UserRole {
   superAdmin,
@@ -86,7 +87,7 @@ class Employee {
       lastOnline: json['last_online'] != null
           ? DateTime.tryParse(json['last_online'] as String)?.toLocal()
           : null,
-      profileImageUrl: json['profile_image_url'] as String?,
+      profileImageUrl: _normalizeImageUrl(json['profile_image_url'] as String?),
       allowedLatitude: (json['allowed_latitude'] as num?)?.toDouble(),
       allowedLongitude: (json['allowed_longitude'] as num?)?.toDouble(),
       allowedRadius: (json['allowed_radius'] as num?)?.toDouble(),
@@ -94,6 +95,17 @@ class Employee {
       basicSalary: (json['basic_salary'] as num?)?.toDouble(),
       passwordResetPending: json['password_reset_pending'] == true,
     );
+  }
+
+  static String? _normalizeImageUrl(String? url) {
+    if (url == null || url.trim().isEmpty) return null;
+    final trimmed = url.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    final base = AppConfig.apiBaseUrl.replaceAll(RegExp(r'/api/?$'), '');
+    final cleanPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '$base$cleanPath';
   }
 
   Map<String, dynamic> toJson() {
