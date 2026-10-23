@@ -32,7 +32,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   LatLng? _pickedLocation;
   String _selectedRole = 'employee';
   String _selectedType = 'general';
-  String _selectedDepartment = 'sales';
+  String _selectedDepartment = 'Other';
   bool _loading = false;
   bool _enableGeofence = false;
   bool _obscurePassword = true;
@@ -235,12 +235,12 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
               // Department dropdown
               _dropdownField(S.department, _selectedDepartment, {
                 'HR': 'HR',
-                'sales': S.sales,
-                'accountant': S.accountant,
-                'warehouse': S.warehouse,
+                'Sales': S.sales,
+                'Accountant': S.accountant,
+                'Ware-House': S.warehouse,
                 'IT': S.itDepartment,
                 'Management': S.management,
-                'other': S.other,
+                'Other': S.other,
               }, (v) => setState(() => _selectedDepartment = v!)),
               const SizedBox(height: 12),
               _buildField(_phoneController, S.phone, Icons.phone_outlined, keyboardType: TextInputType.phone, validator: (v) {
@@ -265,7 +265,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                     if (mounted) setState(() => _selectedRole = roleOptions.keys.first);
                   });
                 }
-                return _dropdownField(S.role, roleOptions.containsKey(_selectedRole) ? _selectedRole : roleOptions.keys.first, roleOptions, (v) => setState(() => _selectedRole = v!));
+                return _dropdownField(S.role, roleOptions.containsKey(_selectedRole) ? _selectedRole : roleOptions.keys.first, roleOptions, (v) => setState(() { _selectedRole = v!; _selectedDepartment = v == 'hr' || v == 'branchAdmin' ? 'HR' : 'Other'; }));
               }),
               const SizedBox(height: 12),
               // Branch selection
@@ -312,7 +312,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                   'sales': S.sales,
                   'accountant': S.accountant,
                   'warehouse': S.warehouse,
-                }, (v) => setState(() => _selectedType = v!)),
+                }, (v) => setState(() { _selectedType = v!; _selectedDepartment = {'general': 'Other', 'sales': 'Sales', 'accountant': 'Accountant', 'warehouse': 'Ware-House'}[v] ?? 'Other'; })),
               const SizedBox(height: 16),
               // Geofence section
               _buildGeofenceSection(),

@@ -7,7 +7,7 @@ class AppConfig {
   // the phone and the web show the same data - review points 12, 18, 20 and 25.
   // Employees sign in with the same credentials; their password hash was
   // migrated across, so one password works on both.
-  static const String workspaceApiBaseUrl = 'https://app.inukta.com/api';
+  static const String workspaceApiBaseUrl = apiBaseUrl;
 
   /// Workspace features are hidden until the employee has a session on the web
   /// side, so a failure there can never block attendance.

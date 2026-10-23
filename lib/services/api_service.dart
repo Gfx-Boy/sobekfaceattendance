@@ -191,7 +191,7 @@ class ApiService {
 
         // No "(status)" pattern here on purpose — the 401-refresh-retry in
         // _call must never recurse into the refresh endpoint itself.
-        throw ApiException('Token refresh failed: $detail');
+        throw ApiException('Token refresh failed: $detail', statusCode: response.statusCode);
       });
 
   // ---------- Attendance ----------
@@ -321,12 +321,11 @@ class ApiService {
     required File referenceImage,
   }) =>
       _call(() async {
-        // Employee creation is handled by the Laravel mobile CRUD endpoint.
-        // The old Node endpoint used /employees/register; that route no longer
-        // exists on the unified API and returns 405.
+        // Use the same employee creation route as the managed employee form.
         final uri = Uri.parse('$baseUrl/employees');
 
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['name'] = name
           ..fields['email'] = email
           ..fields['department'] = department
@@ -1215,7 +1214,8 @@ class _SessionAwareClient extends http.BaseClient {
 
 class ApiException implements Exception {
   final String message;
-  ApiException(this.message);
+  final int? statusCode;
+  ApiException(this.message, {this.statusCode});
 
   // Screens render errors with '$e' — return the bare message so users never
   // see the "ApiException:" prefix (#5 round 4).

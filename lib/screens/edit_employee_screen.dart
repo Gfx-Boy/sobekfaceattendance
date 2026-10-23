@@ -259,22 +259,16 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
               Builder(builder: (_) {
                 final departmentOptions = <String, String>{
                   'HR': 'HR',
-                  'sales': S.sales,
-                  'accountant': S.accountant,
-                  'warehouse': S.warehouse,
+                  'Sales': S.sales,
+                  'Accountant': S.accountant,
+                  'Ware-House': S.warehouse,
                   'IT': S.itDepartment,
                   'Management': S.management,
-                  'other': S.other,
+                  'Other': S.other,
                 };
                 final current = _departmentController.text.trim();
-                final value = departmentOptions.containsKey(current)
-                    ? current
-                    : departmentOptions.keys.first;
-                if (!departmentOptions.containsKey(current)) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _departmentController.text = value;
-                  });
-                }
+                if (current.isNotEmpty) departmentOptions.putIfAbsent(current, () => current);
+                final value = current.isNotEmpty ? current : 'Other';
                 return DropdownButtonFormField<String>(
                   value: value,
                   dropdownColor: context.colors.cardBgLighter,
@@ -418,7 +412,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                     ),
                     style: TextStyle(color: context.colors.textPrimary),
                     items: roleItems,
-                    onChanged: (v) => setState(() => _selectedRole = v!),
+                    onChanged: (v) => setState(() { _selectedRole = v!; _departmentController.text = v == 'hr' || v == 'branchAdmin' ? 'HR' : 'Other'; }),
                   );
                 },
               ),
@@ -485,7 +479,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                     DropdownMenuItem(value: 'accountant', child: Text(S.accountant)),
                     DropdownMenuItem(value: 'warehouse', child: Text(S.warehouse)),
                   ],
-                  onChanged: (v) => setState(() => _selectedType = v!),
+                  onChanged: (v) => setState(() { _selectedType = v!; _departmentController.text = {'general': 'Other', 'sales': 'Sales', 'accountant': 'Accountant', 'warehouse': 'Ware-House'}[v] ?? 'Other'; }),
                 ),
               SizedBox(height: 16),
               // Geofence section

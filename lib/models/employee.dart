@@ -1,19 +1,9 @@
 import '../l10n/app_localizations.dart';
 import '../config/app_config.dart';
 
-enum UserRole {
-  superAdmin,
-  branchAdmin,
-  hr,
-  employee,
-}
+enum UserRole { superAdmin, branchAdmin, hr, employee }
 
-enum EmployeeType {
-  general,
-  sales,
-  accountant,
-  warehouse,
-}
+enum EmployeeType { general, sales, accountant, warehouse }
 
 class Employee {
   final String id;
@@ -84,9 +74,10 @@ class Employee {
       address: json['address'] as String?,
       phone: json['phone'] as String?,
       position: json['position'] as String?,
-      lastOnline: json['last_online'] != null
-          ? DateTime.tryParse(json['last_online'] as String)?.toLocal()
-          : null,
+      lastOnline:
+          json['last_online'] != null
+              ? DateTime.tryParse(json['last_online'] as String)?.toLocal()
+              : null,
       profileImageUrl: _normalizeImageUrl(json['profile_image_url'] as String?),
       allowedLatitude: (json['allowed_latitude'] as num?)?.toDouble(),
       allowedLongitude: (json['allowed_longitude'] as num?)?.toDouble(),
@@ -129,6 +120,7 @@ class Employee {
       'allowed_radius': allowedRadius,
       'is_on_hold': isOnHold,
       'basic_salary': basicSalary,
+      'password_reset_pending': passwordResetPending,
     };
   }
 

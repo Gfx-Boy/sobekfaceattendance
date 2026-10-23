@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/auth_session.dart';
@@ -10,8 +9,9 @@ import '../services/api_service.dart';
 import '../services/notification_service.dart';
 
 class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
-  static const _employeeIdKey = 'employee_id';
   static const _employeeDataKey = 'saved_employee_data';
+  Future<bool>? _refreshInFlight;
+  static const _employeeIdKey = 'employee_id';
   static const _accessTokenKey = 'access_token';
   static const _refreshTokenKey = 'refresh_token';
   static const _accessTokenExpiryMsKey = 'access_token_expiry_ms';
@@ -30,7 +30,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   String? _error;
 
   AuthProvider({ApiService? apiService})
-      : _apiService = apiService ?? ApiService() {
+    : _apiService = apiService ?? ApiService() {
     // If the backend tells us the account logged in on another device,
     // force a client-side logout so stale tokens don't linger.
     ApiService.onSessionInvalidated = () {
@@ -59,7 +59,8 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) return;
     if (!hasRefreshToken || _employee == null) return;
     final expiry = _accessTokenExpiry;
-    final needsRefresh = expiry == null ||
+    final needsRefresh =
+        expiry == null ||
         expiry.difference(DateTime.now()) < const Duration(minutes: 5);
     if (needsRefresh) {
       refreshSession(silent: true);
@@ -93,65 +94,41 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
         expiryMs != null ? DateTime.fromMillisecondsSinceEpoch(expiryMs) : null;
     _apiService.setAccessToken(_accessToken);
 
-    // Restore cached employee object immediately if available so offline/network delay doesn't show logged out
-    final savedEmployeeJson = prefs.getString(_employeeDataKey);
-    if (savedEmployeeJson != null && savedEmployeeJson.isNotEmpty) {
-      try {
-        _employee = Employee.fromJson(jsonDecode(savedEmployeeJson) as Map<String, dynamic>);
-      } catch (e) {
-        debugPrint('Failed to parse cached employee: $e');
-      }
-    }
-
     final employeeId = prefs.getString(_employeeIdKey);
-    if (employeeId == null && (_refreshToken == null || _refreshToken!.isEmpty) && _employee == null) {
+    // Cached identity is only restored alongside a saved session token.
+    if ((_accessToken?.isNotEmpty ?? false) || hasRefreshToken) {
+      try {
+        final cached = prefs.getString(_employeeDataKey);
+        if (cached != null) _employee = Employee.fromJson(jsonDecode(cached));
+      } catch (_) {
+        await prefs.remove(_employeeDataKey);
+      }
+    } else {
+      await _clearSavedSession(prefs);
       return;
     }
-
+    _isLoading = true;
+    notifyListeners();
     try {
-      _isLoading = true;
-      notifyListeners();
-
-      if (_refreshToken != null && _refreshToken!.isNotEmpty) {
-        try {
-          final session = await _apiService.refreshLoginToken(_refreshToken!);
-          await _persistSession(session, prefs);
-          _error = null;
-          return;
-        } catch (refreshErr) {
-          debugPrint('Token refresh failed: $refreshErr');
-          final errStr = refreshErr.toString().toLowerCase();
-          if (errStr.contains('401') || errStr.contains('unauthorized') || errStr.contains('invalid token')) {
-            await _clearSavedSession(prefs);
-            _employee = null;
-            _apiService.setAccessToken(null);
-            _error = refreshErr.toString();
-            return;
-          }
-          // On non-401 (e.g. offline/network), keep cached employee
-        }
+      if (hasRefreshToken) {
+        final session = await _apiService.refreshLoginToken(_refreshToken!);
+        await _persistSession(session, prefs);
+      } else if (employeeId != null) {
+        _employee = await _apiService.getEmployee(employeeId);
+        await _cacheEmployee(prefs);
       }
-
-      if (employeeId != null) {
-        try {
-          _employee = await _apiService.getEmployee(employeeId);
-          if (_employee != null) {
-            await prefs.setString(_employeeDataKey, jsonEncode(_employee!.toJson()));
-          }
-          _error = null;
-        } catch (fetchErr) {
-          debugPrint('Get employee failed: $fetchErr');
-          if (_employee == null) {
-            _error = fetchErr.toString();
-          }
-        }
-      }
+      _error = null;
     } catch (e) {
-      _error = e.toString();
-      if (_employee == null) {
+      if (e is ApiException && e.statusCode == 401) {
         await _clearSavedSession(prefs);
+        _employee = null;
+        _accessToken = null;
+        _refreshToken = null;
         _apiService.setAccessToken(null);
       }
+      // Network and server failures retain the saved session for a retry.
+      _error = e.toString();
+      _scheduleAutoRefresh();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -165,8 +142,10 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
 
       final prefs = await SharedPreferences.getInstance();
-      final session =
-          await _apiService.loginEmployee(email, password: password);
+      final session = await _apiService.loginEmployee(
+        email,
+        password: password,
+      );
       await _persistSession(session, prefs);
 
       _isLoading = false;
@@ -180,7 +159,15 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> refreshSession({bool silent = false}) async {
+  Future<bool> refreshSession({bool silent = false}) {
+    return _refreshInFlight ??= _refreshSession(silent: silent).whenComplete(
+      () {
+        _refreshInFlight = null;
+      },
+    );
+  }
+
+  Future<bool> _refreshSession({bool silent = false}) async {
     final prefs = await SharedPreferences.getInstance();
     _refreshToken ??= prefs.getString(_refreshTokenKey);
 
@@ -202,6 +189,15 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
       return true;
     } catch (e) {
       _error = e.toString();
+      if (e is ApiException && e.statusCode == 401) {
+        await _clearSavedSession(prefs);
+        _cancelAutoRefresh();
+        _employee = null;
+        _accessToken = null;
+        _refreshToken = null;
+        _apiService.setAccessToken(null);
+        notifyListeners();
+      }
       return false;
     } finally {
       if (!silent) {
@@ -257,6 +253,8 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
       allowedLongitude: _employee!.allowedLongitude,
       allowedRadius: _employee!.allowedRadius,
       isOnHold: _employee!.isOnHold,
+      basicSalary: _employee!.basicSalary,
+      passwordResetPending: _employee!.passwordResetPending,
     );
     notifyListeners();
   }
@@ -264,6 +262,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// Update local employee state from an updated Employee model.
   void updateEmployee(Employee updated) {
     _employee = updated;
+    SharedPreferences.getInstance().then(_cacheEmployee);
     notifyListeners();
   }
 
@@ -273,8 +272,11 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final fresh = await _apiService.getEmployee(_employee!.id);
       _employee = fresh;
+      await _cacheEmployee(await SharedPreferences.getInstance());
       notifyListeners();
-    } catch (_) {/* ignore refresh errors */}
+    } catch (_) {
+      /* ignore refresh errors */
+    }
   }
 
   Future<void> _persistSession(
@@ -286,8 +288,9 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     _refreshToken = session.refreshToken;
 
     if (session.expiresInSeconds != null) {
-      _accessTokenExpiry =
-          DateTime.now().add(Duration(seconds: session.expiresInSeconds!));
+      _accessTokenExpiry = DateTime.now().add(
+        Duration(seconds: session.expiresInSeconds!),
+      );
     } else {
       _accessTokenExpiry = null;
     }
@@ -295,7 +298,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     _apiService.setAccessToken(_accessToken);
 
     await prefs.setString(_employeeIdKey, _employee!.id);
-    await prefs.setString(_employeeDataKey, jsonEncode(_employee!.toJson()));
+    await _cacheEmployee(prefs);
 
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await prefs.setString(_accessTokenKey, _accessToken!);
@@ -311,7 +314,9 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (_accessTokenExpiry != null) {
       await prefs.setInt(
-          _accessTokenExpiryMsKey, _accessTokenExpiry!.millisecondsSinceEpoch);
+        _accessTokenExpiryMsKey,
+        _accessTokenExpiry!.millisecondsSinceEpoch,
+      );
     } else {
       await prefs.remove(_accessTokenExpiryMsKey);
     }
@@ -326,9 +331,14 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _cacheEmployee(SharedPreferences prefs) async {
+    if (_employee != null)
+      await prefs.setString(_employeeDataKey, jsonEncode(_employee!.toJson()));
+  }
+
   Future<void> _clearSavedSession(SharedPreferences prefs) async {
-    await prefs.remove(_employeeIdKey);
     await prefs.remove(_employeeDataKey);
+    await prefs.remove(_employeeIdKey);
     await prefs.remove(_accessTokenKey);
     await prefs.remove(_refreshTokenKey);
     await prefs.remove(_accessTokenExpiryMsKey);
@@ -345,9 +355,7 @@ class AuthProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (_refreshToken == null || _refreshToken!.isEmpty) return;
     if (_accessTokenExpiry == null) return;
 
-    var delay = _accessTokenExpiry!
-        .difference(DateTime.now()) -
-        _refreshSkew;
+    var delay = _accessTokenExpiry!.difference(DateTime.now()) - _refreshSkew;
     if (delay < _minRefreshDelay) {
       delay = _minRefreshDelay;
     }

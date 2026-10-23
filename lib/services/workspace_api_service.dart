@@ -11,11 +11,8 @@ import 'api_service.dart' show ApiException;
 
 /// Client for the web SaaS (Laravel + Sanctum).
 ///
-/// Separate from [ApiService] on purpose. Attendance talks to the Node backend,
-/// which is the only place face recognition, liveness and the geofence live;
-/// this one covers the features mirrored from the web app - messenger, CRM and
-/// shifts (review points 18, 20, 25) - and shares nothing but the exception
-/// type, so a problem here can never take attendance down with it.
+/// Uses the same Laravel backend and database as attendance. This client
+/// unwraps the workspace API envelope used by messenger, CRM and shifts.
 class WorkspaceApiService {
   final String baseUrl;
   final http.Client _client;
