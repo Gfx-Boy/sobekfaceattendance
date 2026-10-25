@@ -60,8 +60,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     try {
       setState(() { _loading = true; _error = null; });
       final branches = await ApiService().getBranches();
-      // Compute employee counts directly from the employees list
-      // (more reliable than the backend-stored count)
+      // Compute employee counts directly from the employees list and reconcile
+      // with the backend-stored count. Either source can be momentarily empty
+      // (a failed/slow employees fetch, or stale S3 listing), so take the max
+      // per branch instead of letting a zero clobber a real count (#41).
       Map<String, int> counts = {};
       try {
         final allEmps = await ApiService().getAllEmployees();
@@ -71,6 +73,10 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
           }
         }
       } catch (_) {}
+      for (final b in branches) {
+        final local = counts[b.id] ?? 0;
+        if (b.employeeCount > local) counts[b.id] = b.employeeCount;
+      }
       if (mounted) setState(() {
         _branches = branches;
         _branchEmployeeCounts = counts;
@@ -81,9 +87,18 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     }
   }
 
+  void _reload() {
+    final role = context.read<AuthProvider>().employee?.role;
+    if (role == UserRole.superAdmin && _selectedBranch == null) {
+      _loadBranches();
+    } else {
+      _loadEmployees();
+    }
+  }
+
   Future<void> _loadEmployees() async {
     try {
-      setState(() => _loading = true);
+      setState(() { _loading = true; _error = null; });
       final me = context.read<AuthProvider>().employee;
       String? branchId;
       if (me?.role == UserRole.superAdmin) {
@@ -92,6 +107,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         branchId = me?.branchId;
       }
       List<Employee> employees = await ApiService().getAllEmployees(branchId: branchId);
+      // Filter out superAdmin from directory
+      employees = employees.where((e) => e.role != UserRole.superAdmin).toList();
       // HR should not see branchAdmin in the list
       if (me?.role == UserRole.hr) {
         employees = employees.where((e) => e.role != UserRole.branchAdmin).toList();
@@ -110,7 +127,6 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
 
   Future<void> _toggleHold(Employee emp) async {
     final newHoldState = !emp.isOnHold;
-    final action = newHoldState ? 'hold' : 'unhold';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -193,11 +209,35 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         body: _loading
             ? Center(child: CircularProgressIndicator())
             : _error != null
-                ? Center(child: Text(_error!, style: TextStyle(color: AppTheme.checkOutRed)))
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 64,
+                              color: context.colors.textSecondary
+                                  .withValues(alpha: 0.4)),
+                          const SizedBox(height: 12),
+                          Text(_error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: context.colors.textSecondary)),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: Text(S.tryAgain),
+                            onPressed: _reload,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
                 : _branches.isEmpty
                     ? Center(child: Text(S.noBranchesFound, style: TextStyle(color: context.colors.textSecondary)))
                     : ListView.builder(
-                        padding: const EdgeInsets.all(12),
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                         itemCount: _branches.length,
                         itemBuilder: (ctx, i) {
                           final b = _branches[i];
@@ -273,7 +313,31 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: TextStyle(color: AppTheme.checkOutRed)))
+              ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.wifi_off_rounded,
+                              size: 64,
+                              color: context.colors.textSecondary
+                                  .withValues(alpha: 0.4)),
+                          const SizedBox(height: 12),
+                          Text(_error!,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: context.colors.textSecondary)),
+                          const SizedBox(height: 20),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.refresh),
+                            label: Text(S.tryAgain),
+                            onPressed: _reload,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
               : Column(
                   children: [
                     Padding(
@@ -311,7 +375,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                           : RefreshIndicator(
                               onRefresh: _loadEmployees,
                               child: ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                padding: const EdgeInsets.fromLTRB(12, 0, 12, 96),
                                 itemCount: _filtered.length,
                                 itemBuilder: (context, index) {
                                   final emp = _filtered[index];
@@ -335,8 +399,12 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
       case UserRole.employee: roleColor = AppTheme.accentGreen; break;
     }
 
-    // Cannot delete yourself or superAdmin
-    final canDelete = emp.role != UserRole.superAdmin && emp.id != me?.id;
+    // Cannot delete yourself or superAdmin; #8 — HR cannot delete another HR
+    // (or a branch admin), being the same/lower authority.
+    final canDelete = emp.role != UserRole.superAdmin &&
+        emp.id != me?.id &&
+        !(me?.role == UserRole.hr &&
+            (emp.role == UserRole.hr || emp.role == UserRole.branchAdmin));
     // HR cannot edit branchAdmin
     final canEdit = !(me?.role == UserRole.hr && emp.role == UserRole.branchAdmin);
     // Can toggle hold: SA can hold anyone except SA, BA can hold branch employees, HR can hold non-BA

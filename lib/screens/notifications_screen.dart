@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
+import '../models/employee.dart';
 import '../models/notification_model.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -54,13 +56,89 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _markRead(AppNotification notif) async {
+  /// Optimistically flags the notification read in the local list, then syncs
+  /// with the backend in the background — tapping must never feel stuck on a
+  /// network round-trip (#3).
+  void _markRead(AppNotification notif) {
     final employee = context.read<AuthProvider>().employee;
     if (employee == null || notif.isRead) return;
-    try {
-      await ApiService().markNotificationRead(employee.id, notif.id);
-      _loadNotifications();
-    } catch (_) {}
+    setState(() {
+      _notifications = [
+        for (final n in _notifications)
+          n.id == notif.id ? n.copyWith(isRead: true) : n
+      ];
+    });
+    _filter();
+    ApiService().markNotificationRead(employee.id, notif.id).catchError((_) {});
+  }
+
+  /// Marks read, then opens the relevant page (#8) or, for informational
+  /// notifications, shows the full detail (#22).
+  Future<void> _handleTap(AppNotification notif) async {
+    _markRead(notif);
+    if (!mounted) return;
+    final role = context.read<AuthProvider>().employee?.role;
+    switch (notif.type) {
+      case NotificationType.taskAssignment:
+        Navigator.pushNamed(context, '/tasks');
+        break;
+      case NotificationType.requestApproval:
+      case NotificationType.requestRejection:
+        Navigator.pushNamed(context, '/my-requests');
+        break;
+      case NotificationType.newRequest:
+        Navigator.pushNamed(context, '/manage-requests');
+        break;
+      case NotificationType.payslipAvailable:
+        Navigator.pushNamed(
+            context, role == UserRole.employee ? '/payslips' : '/manage-payslips');
+        break;
+      case NotificationType.evaluationResult:
+        Navigator.pushNamed(context, '/appraisals');
+        break;
+      case NotificationType.hrNotification:
+      case NotificationType.systemAlert:
+      case NotificationType.attendanceAlert:
+      case NotificationType.general:
+        _showNotifDetail(notif);
+        break;
+    }
+  }
+
+  void _showNotifDetail(AppNotification notif) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(notif.title),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(notif.body,
+                  style: TextStyle(color: context.colors.textSecondary)),
+              const SizedBox(height: 12),
+              Row(children: [
+                Icon(Icons.schedule,
+                    size: 14, color: context.colors.textMuted),
+                const SizedBox(width: 6),
+                Text(
+                  DateFormat('MMM d, y · HH:mm', S.locale.languageCode)
+                      .format(notif.createdAt),
+                  style: TextStyle(
+                      color: context.colors.textMuted, fontSize: 12),
+                ),
+              ]),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+        ],
+      ),
+    );
   }
 
   IconData _iconForType(NotificationType type) {
@@ -69,6 +147,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Icons.check_circle_outline;
       case NotificationType.requestRejection:
         return Icons.cancel_outlined;
+      case NotificationType.newRequest:
+        return Icons.assignment_outlined;
       case NotificationType.hrNotification:
         return Icons.badge_outlined;
       case NotificationType.systemAlert:
@@ -92,6 +172,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return AppTheme.accentGreen;
       case NotificationType.requestRejection:
         return AppTheme.checkOutRed;
+      case NotificationType.newRequest:
+        return AppTheme.primaryBlue;
       case NotificationType.hrNotification:
         return AppTheme.warningAmber;
       case NotificationType.systemAlert:
@@ -168,7 +250,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     : RefreshIndicator(
                         onRefresh: _loadNotifications,
                         child: ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding: EdgeInsets.fromLTRB(
+                              12, 4, 12, 12 + MediaQuery.of(context).viewPadding.bottom),
                           itemCount: _filtered.length,
                           itemBuilder: (ctx, i) => _notificationCard(_filtered[i]),
                         ),
@@ -185,7 +268,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final ago = _timeAgo(notif.createdAt);
 
     return GestureDetector(
-      onTap: () => _markRead(notif),
+      onTap: () => _handleTap(notif),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(14),

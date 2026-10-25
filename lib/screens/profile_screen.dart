@@ -6,9 +6,11 @@ import '../config/app_theme.dart';
 import '../l10n/app_localizations.dart';
 import '../models/employee.dart';
 import '../providers/auth_provider.dart';
+import '../providers/workspace_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/change_password_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -22,36 +24,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _uploading = false;
   bool _editMode = false;
   String? _localImageUrl; // cache-busted URL after upload
-  late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _addressController;
-  late TextEditingController _positionController;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController();
     _phoneController = TextEditingController();
     _addressController = TextEditingController();
-    _positionController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
-    _positionController.dispose();
     super.dispose();
   }
 
   void _initEditControllers() {
     final employee = context.read<AuthProvider>().employee;
     if (employee == null) return;
-    _nameController.text = employee.name;
     _phoneController.text = employee.phone ?? '';
     _addressController.text = employee.address ?? '';
-    _positionController.text = employee.position ?? '';
   }
 
   Future<void> _saveProfile() async {
@@ -62,10 +56,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _uploading = true);
     try {
       final updates = <String, dynamic>{
-        'name': _nameController.text.trim(),
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
-        'position': _positionController.text.trim(),
       };
       final updated = await ApiService().updateEmployee(employee.id, updates);
       if (!mounted) return;
@@ -134,8 +126,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final newUrl = await api.uploadProfileImage(employee.id, File(picked.path));
       // Update auth provider immediately so all widgets using employee.profileImageUrl refresh
       auth.updateProfileImageUrl(newUrl);
-      // Add cache-buster so NetworkImage fetches fresh image even if URL is same
-      setState(() => _localImageUrl = '$newUrl?t=${DateTime.now().millisecondsSinceEpoch}');
+      // The backend already returns a versioned (?v=...) URL per upload, so no
+      // extra cache-buster is needed — appending one would double the '?'.
+      setState(() => _localImageUrl = newUrl);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(S.profileImageUpdated), backgroundColor: AppTheme.accentGreen),
@@ -207,7 +200,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 );
                 if (confirmed == true) {
+                  // Drop the web-app session too, or the next person to sign in
+                  // on this phone would inherit the previous one's messenger.
+                  final workspace = context.read<WorkspaceProvider>();
                   await auth.logout();
+                  await workspace.unlink();
                   if (context.mounted) {
                     Navigator.pushReplacementNamed(context, '/login');
                   }
@@ -332,19 +329,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 24),
             // Info cards / Edit form
             if (_editMode) ...[
-              TextFormField(
-                controller: _nameController,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: _inputDecoration(S.name, Icons.person_outlined),
-                validator: (v) => (v ?? '').trim().isEmpty ? S.required : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _positionController,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: _inputDecoration(S.position, Icons.badge_outlined),
-              ),
-              const SizedBox(height: 12),
               TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
@@ -627,88 +611,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _showChangePasswordDialog() async {
-    final auth = context.read<AuthProvider>();
-    final emp = auth.employee;
-    if (emp == null) return;
-    final pwd = TextEditingController();
-    final pwd2 = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: context.colors.cardBg,
-        title: Text(S.changePasswordNow),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: pwd,
-              obscureText: true,
-              style: TextStyle(color: context.colors.textPrimary),
-              decoration: InputDecoration(
-                hintText: S.newPasswordHint,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: pwd2,
-              obscureText: true,
-              style: TextStyle(color: context.colors.textPrimary),
-              decoration: InputDecoration(
-                hintText: S.confirmNewPassword,
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(S.cancel)),
-          ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(S.save)),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    if (pwd.text.length < 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(S.passwordTooShort),
-            backgroundColor: AppTheme.warningAmber),
-      );
-      return;
-    }
-    if (pwd.text != pwd2.text) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(S.passwordsDontMatch),
-            backgroundColor: AppTheme.warningAmber),
-      );
-      return;
-    }
-    try {
-      await ApiService()
-          .selfChangePassword(employeeId: emp.id, newPassword: pwd.text);
-      // Refresh profile so the flag is cleared.
-      await auth.refreshProfile();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(S.passwordUpdated),
-            backgroundColor: AppTheme.accentGreen),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'), backgroundColor: AppTheme.checkOutRed),
-      );
-    }
-  }
+  Future<void> _showChangePasswordDialog() =>
+      showChangePasswordDialog(context);
 
   Widget _actionTile(IconData icon, String label, VoidCallback onTap) {
     final colors = context.colors;

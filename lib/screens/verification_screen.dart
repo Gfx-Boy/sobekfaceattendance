@@ -27,6 +27,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final provider = context.read<AttendanceProvider>();
     final auth = context.read<AuthProvider>();
 
+    // The liveness flow submits BEFORE navigating here. This legacy
+    // auto-pipeline must not run on top of it — it has no captured image, so
+    // it overwrote the real result with "Image or location not available"
+    // even for genuine sign-ins (client video, round 5).
+    if (provider.currentStep == AttendanceStep.uploading ||
+        provider.currentStep == AttendanceStep.verifying ||
+        provider.currentStep == AttendanceStep.success ||
+        provider.currentStep == AttendanceStep.failed) {
+      return;
+    }
+    if (provider.capturedImage == null) return;
+
     // Step 1: Get location
     await provider.getLocation();
     if (provider.currentStep == AttendanceStep.failed) return;
@@ -304,19 +316,33 @@ class _VerificationScreenState extends State<VerificationScreen> {
   Widget _buildBottomButtons(
       BuildContext context, AttendanceProvider provider) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (provider.currentStep == AttendanceStep.failed)
           ElevatedButton.icon(
             icon: const Icon(Icons.refresh),
             label: Text(S.tryAgain),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryBlue,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+            ),
             onPressed: () {
               provider.reset();
-              Navigator.pushReplacementNamed(context, '/camera');
+              // Retry goes back through the LIVENESS scan — routing to the
+              // old camera flow here let a rejected spoof retry through the
+              // weaker legacy path (found in client's video, round 4).
+              Navigator.pushReplacementNamed(context, '/liveness');
             },
           ),
         const SizedBox(height: 12),
         OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+            side: const BorderSide(color: AppTheme.primaryBlue),
+            foregroundColor: AppTheme.primaryBlue,
+          ),
           onPressed: () {
             provider.reset();
             Navigator.pushNamedAndRemoveUntil(
@@ -344,6 +370,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
   String _friendlyError(String? raw) {
     if (raw == null || raw.isEmpty) return S.verificationFailed;
     final lower = raw.toLowerCase();
+    // Spoofed capture (photo of a screen / printed paper / card) — surface the
+    // exact alert the client specified, localized (#3 r3).
+    if (lower.contains('not live') || lower.contains('spoof')) {
+      return S.imageNotLive;
+    }
+    if (lower.contains('update the app')) {
+      return S.updateAppRequired;
+    }
     if (lower.contains('timeout') || lower.contains('timed out')) {
       return S.errorTimeout;
     }
@@ -360,7 +394,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return S.errorNoFace;
     }
     if (lower.contains('location')) {
-      return raw;
+      return raw.replaceAll(RegExp(r'\s*\(max\s*\d+m\)'), '');
     }
     if (lower.contains('outside') || lower.contains('geofence') || lower.contains('radius')) {
       return S.errorGeofence;

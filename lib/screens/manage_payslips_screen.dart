@@ -19,6 +19,7 @@ class ManagePayslipsScreen extends StatefulWidget {
 
 class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   bool _loading = true;
+  String? _loadError;
 
   // Super Admin drill-down levels
   _PayslipLevel _level = _PayslipLevel.branches;
@@ -40,13 +41,37 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   List<Map<String, dynamic>> _empItems = [];
   List<Payslip> _payslips = [];
 
+  final _searchController = TextEditingController();
+  String get _q => _searchController.text.trim().toLowerCase();
+
   bool get _isSA =>
       context.read<AuthProvider>().employee?.role == UserRole.superAdmin;
+
+  /// Whether the current user may issue a payslip to [e]. Mirrors the appraisal
+  /// rule (create_appraisal_screen): nobody pays a super admin, HR cannot pay a
+  /// branch admin, and nobody can issue a payslip to themselves.
+  bool _canIssuePayslipTo(Employee e) {
+    final me = context.read<AuthProvider>().employee;
+    if (me == null) return false;
+    if (e.id == me.id) return false;
+    if (e.role == UserRole.superAdmin) return false;
+    if (me.role == UserRole.hr && e.role == UserRole.branchAdmin) return false;
+    // #13 — HR cannot issue a payslip to another HR (same title/level).
+    if (me.role == UserRole.hr && e.role == UserRole.hr) return false;
+    return true;
+  }
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) => _initLoad());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initLoad() async {
@@ -60,7 +85,10 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   Future<void> _loadSuperAdminData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final results = await Future.wait([
         ApiService().getAllEmployees(),
@@ -74,12 +102,16 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       _employeesMap = {for (final e in employees) e.id: e};
     } catch (e) {
       debugPrint('Load payslips error: $e');
+      _loadError = '$e';
     }
     if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _loadBranchPayslips() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final branchId = context.read<AuthProvider>().employee?.branchId;
       final employees = await ApiService().getAllEmployees(branchId: branchId);
@@ -95,8 +127,22 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _payslips = all;
       _allPayslips = all;
+      _empItems = _employeesMap.values
+          .where(_canIssuePayslipTo)
+          .map((emp) {
+        final count = all.where((p) => p.employeeId == emp.id).length;
+        return <String, dynamic>{
+          'id': emp.id,
+          'name': emp.name,
+          'count': count,
+          'image': emp.profileImageUrl ?? '',
+        };
+      }).toList();
+      _empItems.sort((a, b) =>
+          (a['name'] as String).compareTo(b['name'] as String));
     } catch (e) {
       debugPrint('Load branch payslips error: $e');
+      _loadError = '$e';
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -180,13 +226,14 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   void _goBack() {
+    _searchController.clear();
     if (_level == _PayslipLevel.payslips) {
       setState(() {
         _level = _PayslipLevel.employees;
         _selectedEmployee = null;
         _payslips = [];
       });
-    } else if (_level == _PayslipLevel.employees) {
+    } else if (_level == _PayslipLevel.employees && _isSA) {
       setState(() {
         _level = _PayslipLevel.titles;
         _selectedTitleRole = null;
@@ -208,8 +255,8 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
   }
 
   bool get _canGoBack {
-    if (!_isSA) return false;
-    return _level != _PayslipLevel.branches;
+    if (_isSA) return _level != _PayslipLevel.branches;
+    return _level == _PayslipLevel.payslips;
   }
 
   @override
@@ -223,7 +270,16 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
+          // A failed fetch is NOT an empty branch — show the real reason
+          // (e.g. no internet) with a retry instead of "No employees" (#2 r5).
+          : _loadError != null
+              ? _buildLoadError()
+              : Column(
+                  children: [
+                    _buildSearchBar(),
+                    Expanded(child: _buildBody()),
+                  ],
+                ),
       floatingActionButton: _buildFab(),
     );
   }
@@ -242,7 +298,124 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         child: const Icon(Icons.add, color: Colors.white),
       );
     }
+    // Super Admin reaches employees only through *existing* payslips, so a
+    // branch with none was a dead-end (#7). Offer a create entry once a branch
+    // is selected so the first payslip for any employee can be made.
+    if (_isSA &&
+        _selectedBranch != null &&
+        (_level == _PayslipLevel.periods ||
+            _level == _PayslipLevel.titles ||
+            _level == _PayslipLevel.employees)) {
+      return FloatingActionButton.extended(
+        onPressed: _pickEmployeeAndCreate,
+        backgroundColor: AppTheme.primaryBlue,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: Text(S.createPayslip,
+            style: const TextStyle(color: Colors.white)),
+      );
+    }
     return null;
+  }
+
+  /// Lets a Super Admin pick any employee in the selected branch and create a
+  /// payslip, independent of whether that employee already has payslips (#7).
+  Future<void> _pickEmployeeAndCreate() async {
+    final branchId = _selectedBranch?.id;
+    if (branchId == null) return;
+    final employees = _employeesMap.values
+        .where((e) => e.branchId == branchId)
+        .where(_canIssuePayslipTo)
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    if (employees.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(S.noEmployeesInBranch)));
+      return;
+    }
+    final picked = await showModalBottomSheet<Employee>(
+      context: context,
+      backgroundColor: context.colors.cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(S.selectEmployee,
+                  style: TextStyle(
+                      color: context.colors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600)),
+            ),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: employees.length,
+                itemBuilder: (_, i) {
+                  final e = employees[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor:
+                          AppTheme.primaryBlue.withValues(alpha: 0.15),
+                      backgroundImage: (e.profileImageUrl ?? '').isNotEmpty
+                          ? NetworkImage(e.profileImageUrl!)
+                          : null,
+                      child: (e.profileImageUrl ?? '').isEmpty
+                          ? Text(e.name.isNotEmpty ? e.name[0].toUpperCase() : '?',
+                              style: TextStyle(
+                                  color: AppTheme.primaryBlue,
+                                  fontWeight: FontWeight.w700))
+                          : null,
+                    ),
+                    title: Text(e.name,
+                        style: TextStyle(color: context.colors.textPrimary)),
+                    subtitle: Text(_roleName(e.role.name),
+                        style: TextStyle(
+                            color: context.colors.textSecondary, fontSize: 12)),
+                    onTap: () => Navigator.pop(ctx, e),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    _selectedEmployee = picked;
+    await _showCreatePayslipDialog();
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: TextField(
+        controller: _searchController,
+        style: TextStyle(color: context.colors.textPrimary),
+        decoration: InputDecoration(
+          hintText: S.search,
+          prefixIcon: Icon(Icons.search, color: context.colors.textMuted),
+          suffixIcon: _q.isEmpty
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.clear, color: context.colors.textMuted),
+                  onPressed: () => _searchController.clear(),
+                ),
+          filled: true,
+          fillColor: context.colors.cardBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        ),
+      ),
+    );
   }
 
   Widget _buildBody() {
@@ -254,7 +427,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
       case _PayslipLevel.titles:
         return _buildTitlesList();
       case _PayslipLevel.employees:
-        return _isSA ? _buildEmployeesList() : _buildPayslipsList();
+        return _buildEmployeesList();
       case _PayslipLevel.payslips:
         return _buildPayslipsList();
     }
@@ -264,19 +437,26 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_branches.isEmpty) {
       return _buildEmpty(S.noBranchesFound, Icons.business_outlined);
     }
+    final branches = _branches
+        .where((b) =>
+            _q.isEmpty ||
+            b.name.toLowerCase().contains(_q) ||
+            b.address.toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _branches.length,
+        itemCount: branches.length,
         itemBuilder: (context, i) {
-          final b = _branches[i];
+          final b = branches[i];
           return _drillCard(
             icon: Icons.business,
             title: b.name,
             subtitle: b.address.isNotEmpty ? b.address : S.branch,
             onTap: () {
               _selectedBranch = b;
+              _searchController.clear();
               _buildPeriodsForBranch();
               setState(() => _level = _PayslipLevel.periods);
             },
@@ -290,19 +470,24 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_periods.isEmpty) {
       return _buildEmpty(S.noPayslipsFound, Icons.receipt_long_outlined);
     }
+    final periods = _periods
+        .where((p) =>
+            _q.isEmpty || (p['period'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _periods.length,
+        itemCount: periods.length,
         itemBuilder: (context, i) {
-          final p = _periods[i];
+          final p = periods[i];
           return _drillCard(
             icon: Icons.calendar_month_outlined,
             title: p['period'] as String,
             subtitle: S.employeeCountLabel(p['count'] as int),
             onTap: () {
               _selectedPeriod = p['period'] as String;
+              _searchController.clear();
               _buildTitlesForPeriod();
               setState(() => _level = _PayslipLevel.titles);
             },
@@ -316,13 +501,17 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_titles.isEmpty) {
       return _buildEmpty(S.noTitlesFound, Icons.badge_outlined);
     }
+    final titles = _titles
+        .where((t) =>
+            _q.isEmpty || (t['label'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _titles.length,
+        itemCount: titles.length,
         itemBuilder: (context, i) {
-          final t = _titles[i];
+          final t = titles[i];
           final role = t['role'] as String;
           return _drillCard(
             icon: _iconForRole(role),
@@ -330,6 +519,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
             subtitle: S.employeeCountLabel(t['count'] as int),
             onTap: () {
               _selectedTitleRole = role;
+              _searchController.clear();
               _buildEmployeesForTitle();
               setState(() => _level = _PayslipLevel.employees);
             },
@@ -343,13 +533,17 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_empItems.isEmpty) {
       return _buildEmpty(S.noEmployeesInBranch, Icons.people_outline);
     }
+    final empItems = _empItems
+        .where((e) =>
+            _q.isEmpty || (e['name'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
-      onRefresh: _loadSuperAdminData,
+      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchPayslips,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _empItems.length,
+        itemCount: empItems.length,
         itemBuilder: (context, i) {
-          final emp = _empItems[i];
+          final emp = empItems[i];
           final imageUrl = emp['image'] as String;
           final name = emp['name'] as String;
           return Card(
@@ -379,14 +573,22 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                       color: context.colors.textPrimary,
                       fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  S.employeeCountLabel(emp['count'] as int),
+                  S.fileCountLabel(emp['count'] as int),
                   style: TextStyle(
                       color: context.colors.textSecondary, fontSize: 12)),
               trailing:
                   Icon(Icons.chevron_right, color: context.colors.textMuted),
               onTap: () {
                 _selectedEmployee = _employeesMap[emp['id'] as String];
-                _buildPayslipsForEmployee();
+                _searchController.clear();
+                if (_isSA) {
+                  _buildPayslipsForEmployee();
+                } else {
+                  _payslips = _allPayslips
+                      .where((p) => p.employeeId == (emp['id'] as String))
+                      .toList()
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                }
                 setState(() => _level = _PayslipLevel.payslips);
               },
             ),
@@ -400,12 +602,18 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     if (_payslips.isEmpty) {
       return _buildEmpty(S.noPayslipsFound, Icons.receipt_long_outlined);
     }
+    final payslips = _payslips
+        .where((p) =>
+            _q.isEmpty ||
+            p.employeeName.toLowerCase().contains(_q) ||
+            p.period.toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _isSA ? _loadSuperAdminData : _loadBranchPayslips,
       child: ListView.builder(
         padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.of(context).viewPadding.bottom),
-        itemCount: _payslips.length,
-        itemBuilder: (context, i) => _payslipCard(_payslips[i]),
+        itemCount: payslips.length,
+        itemBuilder: (context, i) => _payslipCard(payslips[i]),
       ),
     );
   }
@@ -528,6 +736,40 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                   color: AppTheme.accentGreen),
               if (p.paymentDate != null && p.paymentDate!.isNotEmpty)
                 row(S.paymentDate, p.paymentDate!),
+              if (p.breakdown != null) ...[  
+                const Divider(height: 18),
+                Text(S.breakdown,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 4),
+                row(S.presentDays,
+                    '${p.breakdown!['present_days'] ?? 0}',
+                    color: AppTheme.accentGreen),
+                row(S.absentDays,
+                    '${p.breakdown!['absent_days'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.lateCount,
+                    '${p.breakdown!['late_count'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.earlyOutCount,
+                    '${p.breakdown!['early_out_count'] ?? 0}',
+                    color: AppTheme.checkOutRed),
+                row(S.incompleteCount,
+                    '${p.breakdown!['incomplete_count'] ?? 0}',
+                    color: AppTheme.warningAmber),
+                if ((p.breakdown!['excused_days'] ?? 0) != 0)
+                  row(S.excusedDays, '${p.breakdown!['excused_days']}',
+                      color: AppTheme.primaryBlue),
+                row(S.overtimeMinutes,
+                    '${p.breakdown!['overtime_minutes'] ?? 0}',
+                    color: AppTheme.primaryBlue),
+                if (p.breakdown!['appraisal_score'] != null)
+                  row(S.appraisalScore,
+                      '${p.breakdown!['appraisal_score']}%',
+                      color: AppTheme.accentGreen),
+              ],
               if (p.notes.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(S.notesOptional,
@@ -544,6 +786,37 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+          // Recompute from the latest attendance — the payslip updates in
+          // place instead of freezing at its first generation (#5 r3).
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await ApiService().generatePayslip(
+                  employeeId: p.employeeId,
+                  period: p.period,
+                  save: true,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(S.payslipCreated),
+                        backgroundColor: AppTheme.accentGreen),
+                  );
+                }
+                _refreshAfterCreate();
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text('$e'),
+                        backgroundColor: AppTheme.checkOutRed),
+                  );
+                }
+              }
+            },
+            child: Text(S.regenerate),
+          ),
         ],
       ),
     );
@@ -611,6 +884,33 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
     }
   }
 
+  Widget _buildLoadError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off_rounded,
+                size: 64,
+                color: context.colors.textSecondary.withValues(alpha: 0.4)),
+            const SizedBox(height: 12),
+            Text(_loadError ?? '',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.colors.textSecondary)),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.refresh),
+              label: Text(S.tryAgain),
+              onPressed: () =>
+                  _isSA ? _loadSuperAdminData() : _loadBranchPayslips(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEmpty(String msg, IconData icon) {
     return Center(
       child: Column(
@@ -634,6 +934,7 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         : DateTime(DateTime.now().year, DateTime.now().month);
     Map<String, dynamic>? preview;
     bool busy = false;
+    bool autoStarted = false;
 
     await showDialog<void>(
       context: context,
@@ -679,6 +980,13 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
           }
         }
 
+        // Auto-load the preview the first time the dialog builds so the Save
+        // button isn't stuck disabled waiting for a manual "Calculate" tap.
+        if (!autoStarted) {
+          autoStarted = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) => runPreview());
+        }
+
         final period =
             '${selectedMonth.year}-${selectedMonth.month.toString().padLeft(2, '0')}';
         return AlertDialog(
@@ -717,6 +1025,8 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
                                       selectedMonth = DateTime(picked.year, picked.month);
                                       preview = null;
                                     });
+                                    // Recalculate for the newly picked month.
+                                    runPreview();
                                   }
                                 },
                         ),
@@ -785,7 +1095,12 @@ class _ManagePayslipsScreenState extends State<ManagePayslipsScreen> {
         row(S.absentDays, '${bd['absent_days'] ?? 0}'),
         row(S.lateCount, '${bd['late_count'] ?? 0}'),
         row(S.earlyOutCount, '${bd['early_out_count'] ?? 0}'),
+        row(S.incompleteCount, '${bd['incomplete_count'] ?? 0}'),
+        if ((bd['excused_days'] ?? 0) != 0)
+          row(S.excusedDays, '${bd['excused_days']}'),
         row(S.overtimeMinutes, '${bd['overtime_minutes'] ?? 0}'),
+        if (bd['appraisal_score'] != null)
+          row(S.appraisalScore, '${bd['appraisal_score']}%'),
       ],
     );
   }

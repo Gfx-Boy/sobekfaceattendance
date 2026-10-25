@@ -1,18 +1,9 @@
 import '../l10n/app_localizations.dart';
+import '../config/app_config.dart';
 
-enum UserRole {
-  superAdmin,
-  branchAdmin,
-  hr,
-  employee,
-}
+enum UserRole { superAdmin, branchAdmin, hr, employee }
 
-enum EmployeeType {
-  general,
-  sales,
-  accountant,
-  warehouse,
-}
+enum EmployeeType { general, sales, accountant, warehouse }
 
 class Employee {
   final String id;
@@ -61,10 +52,14 @@ class Employee {
 
   factory Employee.fromJson(Map<String, dynamic> json) {
     return Employee(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      email: json['email'] as String,
-      department: json['department'] as String,
+      // Tolerate a missing field rather than throwing. A hard cast here meant
+      // one absent key - `department`, on accounts created from the web - blew
+      // up Employee.fromJson, and the TypeError surfaced as the generic
+      // "Something went wrong", giving no hint that a field was the problem.
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? json['email'] ?? '').toString(),
+      email: (json['email'] ?? '').toString(),
+      department: (json['department'] ?? '').toString(),
       referenceImageUrl: json['reference_image_url'] as String?,
       role: UserRole.values.firstWhere(
         (e) => e.name == json['role'],
@@ -79,10 +74,11 @@ class Employee {
       address: json['address'] as String?,
       phone: json['phone'] as String?,
       position: json['position'] as String?,
-      lastOnline: json['last_online'] != null
-          ? DateTime.tryParse(json['last_online'] as String)
-          : null,
-      profileImageUrl: json['profile_image_url'] as String?,
+      lastOnline:
+          json['last_online'] != null
+              ? DateTime.tryParse(json['last_online'] as String)?.toLocal()
+              : null,
+      profileImageUrl: _normalizeImageUrl(json['profile_image_url'] as String?),
       allowedLatitude: (json['allowed_latitude'] as num?)?.toDouble(),
       allowedLongitude: (json['allowed_longitude'] as num?)?.toDouble(),
       allowedRadius: (json['allowed_radius'] as num?)?.toDouble(),
@@ -90,6 +86,17 @@ class Employee {
       basicSalary: (json['basic_salary'] as num?)?.toDouble(),
       passwordResetPending: json['password_reset_pending'] == true,
     );
+  }
+
+  static String? _normalizeImageUrl(String? url) {
+    if (url == null || url.trim().isEmpty) return null;
+    final trimmed = url.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    final base = AppConfig.apiBaseUrl.replaceAll(RegExp(r'/api/?$'), '');
+    final cleanPath = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    return '$base$cleanPath';
   }
 
   Map<String, dynamic> toJson() {
@@ -113,6 +120,7 @@ class Employee {
       'allowed_radius': allowedRadius,
       'is_on_hold': isOnHold,
       'basic_salary': basicSalary,
+      'password_reset_pending': passwordResetPending,
     };
   }
 

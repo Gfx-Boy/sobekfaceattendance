@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import '../config/app_config.dart';
+import '../l10n/app_localizations.dart';
 import '../models/attendance_record.dart';
 import '../models/auth_session.dart';
 import '../models/employee.dart';
@@ -34,6 +35,12 @@ class ApiService {
   static void Function()? onSessionInvalidated;
   static const _sessionInvalidatedMarker = 'another device';
 
+  /// Invoked when a request comes back 401 (expired access token). Should
+  /// refresh the session and return true on success — the failed request is
+  /// then retried once transparently, so the user never sees empty screens
+  /// just because the token aged out (round 5 follow-up).
+  static Future<bool> Function()? onUnauthorized;
+
   ApiService({String? baseUrl, http.Client? client})
       : baseUrl = baseUrl ?? AppConfig.apiBaseUrl,
         _client = _SessionAwareClient(client ?? http.Client());
@@ -56,27 +63,40 @@ class ApiService {
   }
 
   /// Wraps any network call and converts low-level exceptions into friendly
-  /// [ApiException] messages.
-  Future<T> _call<T>(Future<T> Function() fn) async {
+  /// [ApiException] messages. A 401 triggers ONE silent token refresh and
+  /// retry before the error is surfaced.
+  Future<T> _call<T>(Future<T> Function() fn, {bool retried = false}) async {
     try {
       return await fn();
     } on ApiException catch (e) {
       if (e.message.contains(_sessionInvalidatedMarker)) {
         onSessionInvalidated?.call();
+        rethrow;
+      }
+      if (!retried &&
+          (e.message.contains('(401)') || e.message.contains('(403)')) &&
+          onUnauthorized != null) {
+        bool refreshed = false;
+        try {
+          refreshed = await onUnauthorized!();
+        } catch (_) {}
+        if (refreshed) {
+          return _call(fn, retried: true);
+        }
       }
       rethrow;
     } on TimeoutException {
-      throw ApiException(
-          'Request timed out. Check your internet connection and make sure the server is running.');
-    } on SocketException catch (e) {
-      throw ApiException(
-          'Cannot reach server.\n\nURL: $baseUrl\nDetails: ${e.message}\n\nMake sure:\n• Your phone has internet access\n• The tunnel is running on your Mac');
+      throw ApiException(S.errorNoInternet);
+    } on SocketException {
+      // Friendly, localized offline message — never leak URLs or dev-setup
+      // hints ("tunnel on your Mac") into production UI (#5 round 4).
+      throw ApiException(S.errorNoInternet);
     } on HandshakeException {
-      throw ApiException('SSL error connecting to server.');
-    } on HttpException catch (e) {
-      throw ApiException('HTTP error: ${e.message}');
+      throw ApiException(S.errorNoInternet);
+    } on HttpException {
+      throw ApiException(S.errorServer);
     } catch (e) {
-      throw ApiException('Unexpected error: $e');
+      throw ApiException(S.errorServer);
     }
   }
 
@@ -90,11 +110,11 @@ class ApiService {
       if (response.statusCode == 200) return null;
       return 'Server responded with status ${response.statusCode}';
     } on TimeoutException {
-      return 'Connection timed out (8s). Server URL: $baseUrl';
-    } on SocketException catch (e) {
-      return 'Cannot reach server.\nURL: $baseUrl\nError: ${e.message}';
-    } catch (e) {
-      return 'Connection error: $e';
+      return S.errorNoInternet;
+    } on SocketException {
+      return S.errorNoInternet;
+    } catch (_) {
+      return S.errorNoInternet;
     }
   }
 
@@ -169,15 +189,34 @@ class ApiService {
           detail = body['error']?.toString() ?? response.body;
         } catch (_) {}
 
-        throw ApiException(
-            'Token refresh failed (${response.statusCode}): $detail');
+        // No "(status)" pattern here on purpose — the 401-refresh-retry in
+        // _call must never recurse into the refresh endpoint itself.
+        throw ApiException('Token refresh failed: $detail', statusCode: response.statusCode);
       });
 
   // ---------- Attendance ----------
 
+  /// Starts an AWS Face Liveness session; the returned id drives the oval
+  /// face-scan and is then verified server-side in [markAttendance].
+  Future<String> createLivenessSession() => _call(() async {
+        final response = await _client
+            .post(
+              Uri.parse('$baseUrl/attendance/liveness/session'),
+              headers: _headers,
+            )
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          return (json.decode(response.body)
+              as Map<String, dynamic>)['session_id'] as String;
+        }
+        throw ApiException('Failed to start liveness session');
+      });
+
   Future<VerificationResult> markAttendance({
     required String employeeId,
-    required File imageFile,
+    File? imageFile,
+    File? controlImageFile,
+    String? livenessSessionId,
     required double latitude,
     required double longitude,
     String type = 'sign_in',
@@ -185,18 +224,37 @@ class ApiService {
       _call(() async {
         final uri = Uri.parse('$baseUrl/attendance/mark');
 
+        // NOTE: must NOT send Content-Type: application/json on a multipart
+        // request — http sets multipart/form-data with the boundary itself.
+        // Overriding it makes the server fail to parse the image/fields (#6).
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['employee_id'] = employeeId
           ..fields['latitude'] = latitude.toString()
           ..fields['longitude'] = longitude.toString()
-          ..fields['type'] = type
-          ..files.add(
+          ..fields['type'] = type;
+        if (livenessSessionId != null) {
+          request.fields['liveness_session_id'] = livenessSessionId;
+        }
+        if (imageFile != null) {
+          request.files.add(
             await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
               contentType: MediaType('image', 'jpeg'),
             ),
           );
+        }
+        // Silent second frame for the server's passive anti-spoof check.
+        if (controlImageFile != null) {
+          request.files.add(
+            await http.MultipartFile.fromPath(
+              'image_b',
+              controlImageFile.path,
+              contentType: MediaType('image', 'jpeg'),
+            ),
+          );
+        }
 
         final streamedResponse =
             await _client.send(request).timeout(AppConfig.uploadTimeout);
@@ -263,9 +321,11 @@ class ApiService {
     required File referenceImage,
   }) =>
       _call(() async {
-        final uri = Uri.parse('$baseUrl/employees/register');
+        // Use the same employee creation route as the managed employee form.
+        final uri = Uri.parse('$baseUrl/employees');
 
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['name'] = name
           ..fields['email'] = email
           ..fields['department'] = department
@@ -313,7 +373,7 @@ class ApiService {
           'description': description,
           'start_date': startDate,
           'end_date': endDate,
-          if (extraFields != null) ...extraFields,
+          if (extraFields != null) 'extra_fields': extraFields,
         };
 
         final response = await _client
@@ -430,6 +490,23 @@ class ApiService {
         throw ApiException('Failed to load tasks (${response.statusCode})');
       });
 
+  /// All tasks assigned within a branch, regardless of which manager created
+  /// them (#9/#28) — used for the manager "Assigned" tab.
+  Future<List<Task>> getBranchAssignedTasks(String branchId) =>
+      _call(() async {
+        final response = await _client
+            .get(Uri.parse('$baseUrl/tasks/branch-assigned/$branchId'),
+                headers: _headers)
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          final List<dynamic> data = json.decode(response.body) as List<dynamic>;
+          return data
+              .map((item) => Task.fromJson(item as Map<String, dynamic>))
+              .toList();
+        }
+        throw ApiException('Failed to load tasks (${response.statusCode})');
+      });
+
   Future<Task> createTask({
     required String title,
     required String description,
@@ -441,6 +518,7 @@ class ApiService {
     List<String>? attachments,
     String? taskType,
     String? itemCode,
+    String? codeType,
   }) =>
       _call(() async {
         final response = await _client
@@ -457,6 +535,7 @@ class ApiService {
                   if (attachments != null) 'attachments': attachments,
                   if (taskType != null) 'task_type': taskType,
                   if (itemCode != null) 'item_code': itemCode,
+                  if (codeType != null) 'code_type': codeType,
                 }))
             .timeout(AppConfig.apiTimeout);
         if (response.statusCode == 200 || response.statusCode == 201) {
@@ -483,6 +562,22 @@ class ApiService {
           return Task.fromJson(json.decode(response.body) as Map<String, dynamic>);
         }
         throw ApiException('Failed to update task (${response.statusCode})');
+      });
+
+  /// Persist a warehouse counting tally without changing the task status, so
+  /// the assignee can save progress and continue counting later (#18).
+  Future<Task> saveTaskCount(String taskId, int countedTotal) =>
+      _call(() async {
+        final response = await _client
+            .patch(Uri.parse('$baseUrl/tasks/$taskId'),
+                headers: _headers,
+                body: json.encode({'counted_total': countedTotal}))
+            .timeout(AppConfig.apiTimeout);
+        if (response.statusCode == 200) {
+          return Task.fromJson(
+              json.decode(response.body) as Map<String, dynamic>);
+        }
+        throw ApiException('Failed to save count (${response.statusCode})');
       });
 
   /// Self password reset for an employee whose password_reset_pending flag is
@@ -667,8 +762,12 @@ class ApiService {
     double? allowedRadius,
   }) =>
       _call(() async {
-        final uri = Uri.parse('$baseUrl/employees/register');
+        // Keep this aligned with the deployed Laravel route (POST
+        // /api/employees). Using /employees/register returns HTTP 405 because
+        // Laravel only exposes GET/PUT/DELETE for that path parameter.
+        final uri = Uri.parse('$baseUrl/employees');
         final request = http.MultipartRequest('POST', uri)
+          ..headers.addAll(Map.of(_headers)..remove('Content-Type'))
           ..fields['name'] = name
           ..fields['email'] = email
           ..fields['department'] = department
@@ -790,6 +889,8 @@ class ApiService {
     required String employeeName,
     required String evaluatorId,
     required String evaluatorName,
+    String evaluatorRole = '',
+    String branchId = '',
     required String period,
     required Map<String, dynamic> scores,
     required String comments,
@@ -804,6 +905,8 @@ class ApiService {
                   'employee_name': employeeName,
                   'evaluator_id': evaluatorId,
                   'evaluator_name': evaluatorName,
+                  'evaluator_role': evaluatorRole,
+                  'branch_id': branchId,
                   'period': period,
                   'scores': scores,
                   'comments': comments,
@@ -1111,8 +1214,11 @@ class _SessionAwareClient extends http.BaseClient {
 
 class ApiException implements Exception {
   final String message;
-  ApiException(this.message);
+  final int? statusCode;
+  ApiException(this.message, {this.statusCode});
 
+  // Screens render errors with '$e' — return the bare message so users never
+  // see the "ApiException:" prefix (#5 round 4).
   @override
-  String toString() => 'ApiException: $message';
+  String toString() => message;
 }

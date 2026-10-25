@@ -12,6 +12,7 @@ class Payslip {
   final String notes;
   final String? branchId;
   final DateTime createdAt;
+  final Map<String, dynamic>? breakdown;
 
   Payslip({
     required this.id,
@@ -27,6 +28,7 @@ class Payslip {
     this.notes = '',
     this.branchId,
     required this.createdAt,
+    this.breakdown,
   });
 
   factory Payslip.fromJson(Map<String, dynamic> json) {
@@ -43,7 +45,8 @@ class Payslip {
       paymentDate: json['payment_date'] as String?,
       notes: json['notes'] as String? ?? '',
       branchId: json['branch_id'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
+      breakdown: json['breakdown'] as Map<String, dynamic>?,
     );
   }
 
@@ -61,5 +64,6 @@ class Payslip {
         'notes': notes,
         'branch_id': branchId,
         'created_at': createdAt.toIso8601String(),
+        if (breakdown != null) 'breakdown': breakdown,
       };
 }

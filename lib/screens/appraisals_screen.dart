@@ -4,6 +4,7 @@ import '../config/app_theme.dart';
 import '../models/branch.dart';
 import '../models/employee.dart';
 import '../models/appraisal.dart';
+import '../models/appraisal_cycle.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../l10n/app_localizations.dart';
@@ -25,6 +26,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   Map<String, Employee> _employeesMap = {};
   List<Branch> _branches = [];
   List<Appraisal> _allAppraisals = [];
+  List<AppraisalCycle> _cycles = [];
 
   Branch? _selectedBranch;
   String? _selectedPeriod;
@@ -36,23 +38,53 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   List<Map<String, dynamic>> _empItems = [];
   List<Appraisal> _appraisals = [];
 
+  final _searchController = TextEditingController();
+  String get _q => _searchController.text.trim().toLowerCase();
+
   bool get _isSA =>
       context.read<AuthProvider>().employee?.role == UserRole.superAdmin;
+  bool get _isEmployee =>
+      context.read<AuthProvider>().employee?.role == UserRole.employee;
 
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(() => setState(() {}));
     WidgetsBinding.instance.addPostFrameCallback((_) => _initLoad());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initLoad() async {
     final role = context.read<AuthProvider>().employee?.role;
     if (role == UserRole.superAdmin) {
       await _loadSuperAdminData();
+    } else if (role == UserRole.employee) {
+      // #16 — a regular employee only views their own appraisal results.
+      setState(() => _level = _AppraisalLevel.appraisals);
+      await _loadMyAppraisals();
     } else {
       setState(() => _level = _AppraisalLevel.employees);
       await _loadBranchAppraisals();
     }
+  }
+
+  Future<void> _loadMyAppraisals() async {
+    setState(() => _loading = true);
+    try {
+      final me = context.read<AuthProvider>().employee;
+      if (me != null) {
+        _appraisals = await ApiService().getAppraisals(me.id);
+        _appraisals.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      }
+    } catch (e) {
+      debugPrint('Load my appraisals error: $e');
+    }
+    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _loadSuperAdminData() async {
@@ -62,10 +94,12 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         ApiService().getAllEmployees(),
         ApiService().getBranches(),
         ApiService().getAllAppraisals(),
+        ApiService().getAppraisalCycles(),
       ]);
       final employees = results[0] as List<Employee>;
       _branches = results[1] as List<Branch>;
       _allAppraisals = results[2] as List<Appraisal>;
+      _cycles = results[3] as List<AppraisalCycle>;
 
       _employeesMap = {for (final e in employees) e.id: e};
     } catch (e) {
@@ -80,6 +114,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       final branchId = context.read<AuthProvider>().employee?.branchId;
       final employees = await ApiService().getAllEmployees(branchId: branchId);
       _employeesMap = {for (final e in employees) e.id: e};
+      _cycles = await ApiService().getAppraisalCycles(branchId: branchId);
 
       final all = <Appraisal>[];
       for (final emp in employees) {
@@ -91,6 +126,29 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       _appraisals = all;
       _allAppraisals = all;
+      final myRole = context.read<AuthProvider>().employee?.role;
+      final myId = context.read<AuthProvider>().employee?.id;
+      _empItems = _employeesMap.values
+          .where((emp) => emp.role != UserRole.superAdmin)
+          // An HR evaluates only plain employees — peers (other HRs) and the
+          // branch admin are out of their scope. They keep their own entry so
+          // they can view results the branch admin gave them.
+          .where((emp) =>
+              myRole != UserRole.hr ||
+              emp.role == UserRole.employee ||
+              emp.id == myId)
+          .map((emp) {
+        final count = all.where((a) => a.employeeId == emp.id).length;
+        return <String, dynamic>{
+          'id': emp.id,
+          'name': emp.name,
+          'count': count,
+          'image': emp.profileImageUrl ?? '',
+          'role': emp.role.name,
+        };
+      }).toList();
+      _empItems.sort((a, b) =>
+          (a['name'] as String).compareTo(b['name'] as String));
     } catch (e) {
       debugPrint('Load branch appraisals error: $e');
     }
@@ -174,13 +232,14 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   void _goBack() {
+    _searchController.clear();
     if (_level == _AppraisalLevel.appraisals) {
       setState(() {
         _level = _AppraisalLevel.employees;
         _selectedEmployee = null;
         _appraisals = [];
       });
-    } else if (_level == _AppraisalLevel.employees) {
+    } else if (_level == _AppraisalLevel.employees && _isSA) {
       setState(() {
         _level = _AppraisalLevel.titles;
         _selectedTitleRole = null;
@@ -202,8 +261,9 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   bool get _canGoBack {
-    if (!_isSA) return false;
-    return _level != _AppraisalLevel.branches;
+    if (_isEmployee) return false; // appraisals list is their root
+    if (_isSA) return _level != _AppraisalLevel.branches;
+    return _level == _AppraisalLevel.appraisals;
   }
 
   @override
@@ -238,9 +298,20 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
+          : Column(
+              children: [
+                if (!_isEmployee) _buildSearchBar(),
+                Expanded(child: _buildBody()),
+              ],
+            ),
       floatingActionButton: _buildFab(),
     );
+  }
+
+  /// True when the given branch currently has an active appraisal cycle.
+  bool _hasActiveCycleFor(String? branchId) {
+    if (branchId == null || branchId.isEmpty) return false;
+    return _cycles.any((c) => c.branchId == branchId && c.isActive);
   }
 
   Widget? _buildFab() {
@@ -250,9 +321,21 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
         role == UserRole.hr;
     if (!canCreate) return null;
     if (_level == _AppraisalLevel.appraisals && _selectedEmployee != null) {
-      // #23/#37 — HR cannot appraise a Branch Admin
+      // Nobody appraises themself — branch admin included.
+      if (_selectedEmployee!.id ==
+          context.read<AuthProvider>().employee?.id) {
+        return null;
+      }
+      // #23/#37 — HR cannot appraise a Branch Admin; #14 — nor another HR.
       if (role == UserRole.hr &&
-          _selectedEmployee!.role == UserRole.branchAdmin) {
+          (_selectedEmployee!.role == UserRole.branchAdmin ||
+              _selectedEmployee!.role == UserRole.hr)) {
+        return null;
+      }
+      // Evaluations may only be created inside an active cycle (started by the
+      // branch admin). With no active cycle for the employee's branch, hide the
+      // create button — a banner explains why.
+      if (!_hasActiveCycleFor(_selectedEmployee!.branchId)) {
         return null;
       }
       return FloatingActionButton(
@@ -264,6 +347,33 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     return null;
   }
 
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: TextField(
+        controller: _searchController,
+        style: TextStyle(color: context.colors.textPrimary),
+        decoration: InputDecoration(
+          hintText: S.search,
+          prefixIcon: Icon(Icons.search, color: context.colors.textMuted),
+          suffixIcon: _q.isEmpty
+              ? null
+              : IconButton(
+                  icon: Icon(Icons.clear, color: context.colors.textMuted),
+                  onPressed: () => _searchController.clear(),
+                ),
+          filled: true,
+          fillColor: context.colors.cardBg,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     switch (_level) {
       case _AppraisalLevel.branches:
@@ -273,7 +383,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
       case _AppraisalLevel.titles:
         return _buildTitlesList();
       case _AppraisalLevel.employees:
-        return _isSA ? _buildEmployeesList() : _buildAppraisalsList();
+        return _buildEmployeesList();
       case _AppraisalLevel.appraisals:
         return _buildAppraisalsList();
     }
@@ -283,19 +393,26 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     if (_branches.isEmpty) {
       return _buildEmpty(S.noBranchesFound, Icons.business_outlined);
     }
+    final branches = _branches
+        .where((b) =>
+            _q.isEmpty ||
+            b.name.toLowerCase().contains(_q) ||
+            b.address.toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _branches.length,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        itemCount: branches.length,
         itemBuilder: (context, i) {
-          final b = _branches[i];
+          final b = branches[i];
           return _drillCard(
             icon: Icons.business,
             title: b.name,
             subtitle: b.address.isNotEmpty ? b.address : S.branch,
             onTap: () {
               _selectedBranch = b;
+              _searchController.clear();
               _buildPeriodsForBranch();
               setState(() => _level = _AppraisalLevel.periods);
             },
@@ -309,19 +426,24 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     if (_periods.isEmpty) {
       return _buildEmpty(S.noEvaluations, Icons.assessment_outlined);
     }
+    final periods = _periods
+        .where((p) =>
+            _q.isEmpty || (p['period'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _periods.length,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        itemCount: periods.length,
         itemBuilder: (context, i) {
-          final p = _periods[i];
+          final p = periods[i];
           return _drillCard(
             icon: Icons.calendar_month_outlined,
             title: p['period'] as String,
             subtitle: S.employeeCountLabel(p['count'] as int),
             onTap: () {
               _selectedPeriod = p['period'] as String;
+              _searchController.clear();
               _buildTitlesForPeriod();
               setState(() => _level = _AppraisalLevel.titles);
             },
@@ -335,13 +457,17 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     if (_titles.isEmpty) {
       return _buildEmpty(S.noTitlesFound, Icons.badge_outlined);
     }
+    final titles = _titles
+        .where((t) =>
+            _q.isEmpty || (t['label'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
       onRefresh: _loadSuperAdminData,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _titles.length,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        itemCount: titles.length,
         itemBuilder: (context, i) {
-          final t = _titles[i];
+          final t = titles[i];
           final role = t['role'] as String;
           return _drillCard(
             icon: _iconForRole(role),
@@ -349,6 +475,7 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
             subtitle: S.employeeCountLabel(t['count'] as int),
             onTap: () {
               _selectedTitleRole = role;
+              _searchController.clear();
               _buildEmployeesForTitle();
               setState(() => _level = _AppraisalLevel.employees);
             },
@@ -362,13 +489,17 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
     if (_empItems.isEmpty) {
       return _buildEmpty(S.noEmployeesInBranch, Icons.people_outline);
     }
+    final empItems = _empItems
+        .where((e) =>
+            _q.isEmpty || (e['name'] as String).toLowerCase().contains(_q))
+        .toList();
     return RefreshIndicator(
-      onRefresh: _loadSuperAdminData,
+      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchAppraisals,
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _empItems.length,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        itemCount: empItems.length,
         itemBuilder: (context, i) {
-          final emp = _empItems[i];
+          final emp = empItems[i];
           final imageUrl = emp['image'] as String;
           final name = emp['name'] as String;
           return Card(
@@ -398,14 +529,22 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
                       color: context.colors.textPrimary,
                       fontWeight: FontWeight.w600)),
               subtitle: Text(
-                  S.employeeCountLabel(emp['count'] as int),
+                  S.fileCountLabel(emp['count'] as int),
                   style: TextStyle(
                       color: context.colors.textSecondary, fontSize: 12)),
               trailing:
                   Icon(Icons.chevron_right, color: context.colors.textMuted),
               onTap: () {
                 _selectedEmployee = _employeesMap[emp['id'] as String];
-                _buildAppraisalsForEmployee();
+                _searchController.clear();
+                if (_isSA) {
+                  _buildAppraisalsForEmployee();
+                } else {
+                  _appraisals = _allAppraisals
+                      .where((a) => a.employeeId == (emp['id'] as String))
+                      .toList()
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                }
                 setState(() => _level = _AppraisalLevel.appraisals);
               },
             ),
@@ -416,17 +555,110 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   Widget _buildAppraisalsList() {
+    final banner = _noCycleBanner();
+    final content = _appraisalsContent();
+    if (banner == null) return content;
+    return Column(children: [banner, Expanded(child: content)]);
+  }
+
+  /// Shown when an evaluator is viewing an employee but the branch has no active
+  /// cycle, so evaluation isn't possible yet.
+  Widget? _noCycleBanner() {
+    final role = context.read<AuthProvider>().employee?.role;
+    final canCreate = role == UserRole.superAdmin ||
+        role == UserRole.branchAdmin ||
+        role == UserRole.hr;
+    if (!canCreate || _selectedEmployee == null) return null;
+    if (role == UserRole.hr &&
+        (_selectedEmployee!.role == UserRole.branchAdmin ||
+            _selectedEmployee!.role == UserRole.hr)) {
+      return null; // HR can't appraise a branch admin or an HR peer (#14)
+    }
+    if (_hasActiveCycleFor(_selectedEmployee!.branchId)) return null;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.warningAmber.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.warningAmber.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: AppTheme.warningAmber, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              S.noActiveCycleNotice,
+              style: const TextStyle(
+                color: AppTheme.warningAmber,
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _appraisalsContent() {
     if (_appraisals.isEmpty) {
       return _buildEmpty(S.noEvaluations, Icons.assessment_outlined);
     }
+    final appraisals = _appraisals
+        .where((a) =>
+            _q.isEmpty ||
+            a.employeeName.toLowerCase().contains(_q) ||
+            a.period.toLowerCase().contains(_q) ||
+            a.evaluatorName.toLowerCase().contains(_q))
+        .toList();
+    // #21 — group by month. The list is already sorted newest-first, so a
+    // header row is emitted whenever the month of `createdAt` changes.
+    final items = <Object>[];
+    String? lastMonthKey;
+    for (final a in appraisals) {
+      final key = '${a.createdAt.year}-${a.createdAt.month}';
+      if (key != lastMonthKey) {
+        lastMonthKey = key;
+        items.add('${S.months[a.createdAt.month - 1]} ${a.createdAt.year}');
+      }
+      items.add(a);
+    }
     return RefreshIndicator(
-      onRefresh: _isSA ? _loadSuperAdminData : _loadBranchAppraisals,
+      onRefresh: _isSA
+          ? _loadSuperAdminData
+          : (_isEmployee ? _loadMyAppraisals : _loadBranchAppraisals),
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _appraisals.length,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+        itemCount: items.length,
         itemBuilder: (context, i) {
-          final a = _appraisals[i];
-          return Container(
+          final item = items[i];
+          if (item is String) {
+            return Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : 8, bottom: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.calendar_month_outlined,
+                      size: 16, color: context.colors.textMuted),
+                  const SizedBox(width: 6),
+                  Text(
+                    item,
+                    style: TextStyle(
+                      color: context.colors.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          final a = item as Appraisal;
+          return GestureDetector(
+            onTap: () => _showAppraisalDetail(a),
+            child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -496,8 +728,118 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
                 ],
               ],
             ),
+          ),
           );
         },
+      ),
+    );
+  }
+
+  /// Shows the full appraisal result: per-category scores, overall and the
+  /// evaluator's comments (#16, #18).
+  Future<void> _showAppraisalDetail(Appraisal a) async {
+    String prettyKey(String k) => k
+        .split(RegExp(r'[_\s]'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''))
+        .join(' ');
+
+    Widget scoreRow(String label, num value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          color: context.colors.textSecondary, fontSize: 13)),
+                  Text('${value.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13)),
+                ],
+              ),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: (value / 100).clamp(0, 1).toDouble(),
+                  minHeight: 6,
+                  backgroundColor: context.colors.surfaceBorder,
+                  color: value >= 70
+                      ? AppTheme.accentGreen
+                      : (value >= 50
+                          ? AppTheme.warningAmber
+                          : AppTheme.checkOutRed),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text('${S.appraisals} · ${a.period}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(S.overallScore,
+                      style: TextStyle(
+                          color: context.colors.textPrimary,
+                          fontWeight: FontWeight.w700)),
+                  Text('${a.overallScore.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                          color: a.overallScore >= 70
+                              ? AppTheme.accentGreen
+                              : AppTheme.checkOutRed,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18)),
+                ],
+              ),
+              const Divider(height: 20),
+              if (a.scores.isEmpty)
+                Text(S.noEvaluations,
+                    style: TextStyle(color: context.colors.textSecondary))
+              else
+                ...a.scores.entries.map((e) {
+                  final v = e.value;
+                  final num n = v is num ? v : (num.tryParse('$v') ?? 0);
+                  return scoreRow(prettyKey(e.key), n);
+                }),
+              if (a.evaluatorName.isNotEmpty) ...[
+                const Divider(height: 20),
+                Text('${S.evaluator}: ${a.evaluatorName}',
+                    style: TextStyle(
+                        color: context.colors.textMuted, fontSize: 12)),
+              ],
+              if (a.comments.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(S.comments,
+                    style: TextStyle(
+                        color: context.colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13)),
+                const SizedBox(height: 4),
+                Text(a.comments,
+                    style: TextStyle(
+                        color: context.colors.textSecondary, fontSize: 13)),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(S.close)),
+        ],
       ),
     );
   }
@@ -580,15 +922,185 @@ class _AppraisalsScreenState extends State<AppraisalsScreen> {
   }
 
   void _showCreateAppraisalDialog() {
-    showDialog(
+    final emp = _selectedEmployee;
+    if (emp == null) return;
+    final me = context.read<AuthProvider>().employee;
+    final now = DateTime.now();
+    DateTime selectedMonth = DateTime(now.year, now.month);
+    final scores = <String, double>{
+      'quality_of_work': 50,
+      'productivity': 50,
+      'attendance': 50,
+      'teamwork': 50,
+      'initiative': 50,
+    };
+    final commentsCtrl = TextEditingController();
+    bool busy = false;
+
+    showDialog<void>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(S.newEvaluation),
-        content: const Text('Create appraisal dialog'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(S.cancel)),
-        ],
-      ),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        final period =
+            '${selectedMonth.year}-${selectedMonth.month.toString().padLeft(2, '0')}';
+        final overall =
+            scores.values.reduce((a, b) => a + b) / scores.length;
+
+        Future<void> submit() async {
+          setS(() => busy = true);
+          try {
+            await ApiService().createAppraisal(
+              employeeId: emp.id,
+              employeeName: emp.name,
+              evaluatorId: me?.id ?? '',
+              evaluatorName: me?.name ?? '',
+              evaluatorRole: me?.role.name ?? '',
+              branchId: me?.branchId ?? emp.branchId ?? '',
+              period: period,
+              scores: scores.map((k, v) => MapEntry(k, v)),
+              comments: commentsCtrl.text.trim(),
+              overallScore: overall,
+            );
+            if (ctx.mounted) Navigator.pop(ctx);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(S.evaluationSubmitted)));
+              _isSA ? _loadSuperAdminData() : _loadBranchAppraisals();
+            }
+          } catch (e) {
+            if (ctx.mounted) {
+              ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+                  content: Text('$e'),
+                  backgroundColor: AppTheme.checkOutRed));
+            }
+          } finally {
+            setS(() => busy = false);
+          }
+        }
+
+        Widget scoreRow(String key, String label) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(label,
+                        style: TextStyle(
+                            color: ctx.colors.textSecondary, fontSize: 13)),
+                    Text('${scores[key]!.round()}',
+                        style: const TextStyle(
+                            color: AppTheme.primaryBlue,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                Slider(
+                  value: scores[key]!,
+                  min: 0,
+                  max: 100,
+                  divisions: 20,
+                  activeColor: AppTheme.primaryBlue,
+                  onChanged:
+                      busy ? null : (v) => setS(() => scores[key] = v),
+                ),
+              ],
+            );
+
+        return AlertDialog(
+          backgroundColor: ctx.colors.cardBg,
+          title: Text(S.newEvaluation),
+          content: SizedBox(
+            width: 360,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(emp.name,
+                      style: TextStyle(
+                          color: ctx.colors.textPrimary,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.calendar_month, size: 18),
+                    label: Text(period),
+                    onPressed: busy
+                        ? null
+                        : () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: selectedMonth,
+                              firstDate: DateTime(now.year - 3),
+                              lastDate: DateTime(now.year + 1, 12),
+                            );
+                            if (picked != null) {
+                              setS(() => selectedMonth =
+                                  DateTime(picked.year, picked.month));
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 12),
+                  scoreRow('quality_of_work', S.qualityOfWork),
+                  scoreRow('productivity', S.productivity),
+                  scoreRow('attendance', S.attendanceLabel),
+                  scoreRow('teamwork', S.teamwork),
+                  scoreRow('initiative', S.initiative),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(S.overallScore,
+                          style: TextStyle(
+                              color: ctx.colors.textPrimary,
+                              fontWeight: FontWeight.w600)),
+                      Text(
+                        '${overall.round()}%',
+                        style: TextStyle(
+                            color: overall >= 70
+                                ? AppTheme.accentGreen
+                                : AppTheme.checkOutRed,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: commentsCtrl,
+                    maxLines: 3,
+                    style: TextStyle(color: ctx.colors.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: S.comments,
+                      filled: true,
+                      fillColor: ctx.colors.cardBgLighter,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(
+                              color: ctx.colors.surfaceBorder)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+                onPressed: busy ? null : () => Navigator.pop(ctx),
+                child: Text(S.cancel)),
+            ElevatedButton(
+              onPressed: busy ? null : submit,
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryBlue),
+              child: busy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : Text(S.submitEvaluation,
+                      style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      }),
     );
   }
 }

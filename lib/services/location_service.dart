@@ -2,8 +2,14 @@ import 'package:geolocator/geolocator.dart';
 
 class LocationService {
   Future<Position> getCurrentLocation() async {
-    // Check if GPS/location service is enabled on the device
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    // Check if GPS/location service is enabled on the device. Samsung takes
+    // a moment to propagate the toggle after the user flips it in settings —
+    // re-check once before declaring it off (round-6 location loop fix).
+    var serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      await Future.delayed(const Duration(milliseconds: 800));
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    }
     if (!serviceEnabled) {
       throw LocationServiceException(
         'Location services are turned off on your device. Please enable GPS and try again.',

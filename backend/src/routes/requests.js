@@ -26,6 +26,7 @@ router.post('/', async (req, res) => {
       description,
       start_date,
       end_date,
+      extra_fields,
     } = req.body;
 
     if (!employee_id || !category || !type || !title || !description) {
@@ -47,6 +48,7 @@ router.post('/', async (req, res) => {
       created_at: new Date().toISOString(),
       start_date: start_date || null,
       end_date: end_date || null,
+      extra_fields: extra_fields || {},
       comment: null,
       reviewed_by: null,
       reviewed_at: null,
@@ -68,8 +70,10 @@ router.post('/', async (req, res) => {
           if (!key.endsWith('.json') || key.includes('index')) continue;
           const admin = await getJSON(key);
           if (!admin) continue;
-          // Notify BA of same branch
-          if (admin.role === 'branchAdmin' && admin.branch_id === emp.branch_id && admin.id !== employee_id) {
+          // Notify BA and HR of the same branch — both handle requests, so
+          // both must hear about new ones (client point 13).
+          if ((admin.role === 'branchAdmin' || admin.role === 'hr') &&
+              admin.branch_id === emp.branch_id && admin.id !== employee_id) {
             notificationRoutes.sendPushToEmployee(
               admin.id,
               'New Request',
@@ -154,7 +158,10 @@ router.patch('/:id/review', async (req, res) => {
     await putJSON(requestKey(req.params.id), request);
 
     // #32 — Password-change request approval unlocks self-reset.
-    if (status === 'approved' && request.type === 'password_change' && request.employee_id) {
+    // Accept both the snake_case and camelCase type spellings (#19).
+    const isPasswordChange =
+      request.type === 'password_change' || request.type === 'passwordChange';
+    if (status === 'approved' && isPasswordChange && request.employee_id) {
       try {
         const emp = await getJSON(`data/employees/employee-${request.employee_id}.json`);
         if (emp) {

@@ -34,6 +34,14 @@ let firebaseInitialized = false;
       serviceAccount = JSON.parse(inlineJson);
     }
 
+    // Final fallback: bundled key shipped with the backend source
+    if (!serviceAccount) {
+      const bundledPath = path.resolve(__dirname, '../config/firebase-adminsdk.json');
+      if (fs.existsSync(bundledPath)) {
+        serviceAccount = JSON.parse(fs.readFileSync(bundledPath, 'utf8'));
+      }
+    }
+
     if (serviceAccount) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
       firebaseInitialized = true;
@@ -162,7 +170,7 @@ router.sendPushToEmployee = sendPushToEmployee;
 // POST /api/notifications — create a notification for a user
 router.post('/', async (req, res) => {
   try {
-    const { employee_id, type, title, body } = req.body;
+    const { employee_id, type, title, body, data } = req.body;
 
     if (!employee_id || !title) {
       return res.status(400).json({ error: 'employee_id and title are required' });
@@ -175,6 +183,7 @@ router.post('/', async (req, res) => {
       type: type || 'general',
       title,
       body: body || '',
+      data: data || {},
       is_read: false,
       created_at: new Date().toISOString(),
     };

@@ -22,8 +22,8 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _departmentController;
-  late TextEditingController _positionController;
   late TextEditingController _phoneController;
+  late TextEditingController _addressController;
   late TextEditingController _salaryController;
   late TextEditingController _passwordController;
   late TextEditingController _latitudeController;
@@ -34,6 +34,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   late bool _enableGeofence;
   LatLng? _pickedLocation;
   bool _loading = false;
+  bool _obscurePassword = true;
 
   // Branch selection
   List<Branch> _branches = [];
@@ -46,8 +47,8 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
     super.initState();
     _nameController = TextEditingController(text: widget.employee.name);
     _departmentController = TextEditingController(text: widget.employee.department);
-    _positionController = TextEditingController(text: widget.employee.position ?? '');
     _phoneController = TextEditingController(text: widget.employee.phone ?? '');
+    _addressController = TextEditingController(text: widget.employee.address ?? '');
     _salaryController = TextEditingController(
         text: (widget.employee.basicSalary ?? 0) > 0
             ? widget.employee.basicSalary!.toStringAsFixed(0)
@@ -83,8 +84,8 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
   void dispose() {
     _nameController.dispose();
     _departmentController.dispose();
-    _positionController.dispose();
     _phoneController.dispose();
+    _addressController.dispose();
     _salaryController.dispose();
     _passwordController.dispose();
     _latitudeController.dispose();
@@ -123,6 +124,19 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Location is required (#38). Only enforce when this editor is allowed to
+    // change location; otherwise they cannot fix it and must not be trapped.
+    if (_canEditLocation &&
+        (!_enableGeofence ||
+            _latitudeController.text.trim().isEmpty ||
+            _longitudeController.text.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.locationRequired), backgroundColor: AppTheme.checkOutRed),
+      );
+      return;
+    }
+
     setState(() => _loading = true);
     try {
       final updates = <String, dynamic>{
@@ -130,8 +144,8 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
         'department': _departmentController.text.trim(),
         'role': _selectedRole,
         'employee_type': _selectedType,
-        'position': _positionController.text.trim(),
         'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
         'basic_salary':
             double.tryParse(_salaryController.text.trim()) ?? 0,
         'branch_id': _selectedBranchId,
@@ -245,22 +259,16 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
               Builder(builder: (_) {
                 final departmentOptions = <String, String>{
                   'HR': 'HR',
-                  'sales': S.sales,
-                  'accountant': S.accountant,
-                  'warehouse': S.warehouse,
+                  'Sales': S.sales,
+                  'Accountant': S.accountant,
+                  'Ware-House': S.warehouse,
                   'IT': S.itDepartment,
                   'Management': S.management,
-                  'other': S.other,
+                  'Other': S.other,
                 };
                 final current = _departmentController.text.trim();
-                final value = departmentOptions.containsKey(current)
-                    ? current
-                    : departmentOptions.keys.first;
-                if (!departmentOptions.containsKey(current)) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) _departmentController.text = value;
-                  });
-                }
+                if (current.isNotEmpty) departmentOptions.putIfAbsent(current, () => current);
+                final value = current.isNotEmpty ? current : 'Other';
                 return DropdownButtonFormField<String>(
                   value: value,
                   dropdownColor: context.colors.cardBgLighter,
@@ -286,12 +294,6 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
               }),
               SizedBox(height: 12),
               TextFormField(
-                controller: _positionController,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: InputDecoration(labelText: S.position, prefixIcon: Icon(Icons.badge_outlined, color: context.colors.textSecondary)),
-              ),
-              SizedBox(height: 12),
-              TextFormField(
                 controller: _phoneController,
                 keyboardType: TextInputType.phone,
                 validator: (v) => (v ?? '').trim().isEmpty ? S.phoneRequired : null,
@@ -299,12 +301,19 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                 decoration: InputDecoration(labelText: S.phone, prefixIcon: Icon(Icons.phone_outlined, color: context.colors.textSecondary)),
               ),
               SizedBox(height: 12),
+              TextFormField(
+                controller: _addressController,
+                style: TextStyle(color: context.colors.textPrimary),
+                decoration: InputDecoration(labelText: S.address, prefixIcon: Icon(Icons.location_on_outlined, color: context.colors.textSecondary)),
+              ),
+              SizedBox(height: 12),
               Builder(builder: (context) {
                 final currentRole =
                     context.read<AuthProvider>().employee?.role ?? UserRole.employee;
+                // #9 — basic salary is only visible/editable to the super admin
+                // and branch admin (not HR).
                 final canEditSalary = currentRole == UserRole.superAdmin ||
-                    currentRole == UserRole.branchAdmin ||
-                    currentRole == UserRole.hr;
+                    currentRole == UserRole.branchAdmin;
                 if (!canEditSalary) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -320,12 +329,35 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                   ),
                 );
               }),
-              TextFormField(
-                controller: _passwordController,
-                obscureText: true,
-                style: TextStyle(color: context.colors.textPrimary),
-                decoration: InputDecoration(labelText: S.newPasswordHint, prefixIcon: Icon(Icons.lock_outline, color: context.colors.textSecondary)),
-              ),
+              // #10 — new password is only available to the super admin and
+              // branch admin, with an eye icon to reveal what is typed.
+              Builder(builder: (context) {
+                final currentRole =
+                    context.read<AuthProvider>().employee?.role ?? UserRole.employee;
+                final canSetPassword = currentRole == UserRole.superAdmin ||
+                    currentRole == UserRole.branchAdmin;
+                if (!canSetPassword) return const SizedBox.shrink();
+                return TextFormField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  style: TextStyle(color: context.colors.textPrimary),
+                  decoration: InputDecoration(
+                    labelText: S.newPasswordHint,
+                    prefixIcon: Icon(Icons.lock_outline,
+                        color: context.colors.textSecondary),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: context.colors.textSecondary,
+                      ),
+                      onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                );
+              }),
               const SizedBox(height: 16),
               Builder(
                 builder: (context) {
@@ -380,7 +412,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                     ),
                     style: TextStyle(color: context.colors.textPrimary),
                     items: roleItems,
-                    onChanged: (v) => setState(() => _selectedRole = v!),
+                    onChanged: (v) => setState(() { _selectedRole = v!; _departmentController.text = v == 'hr' || v == 'branchAdmin' ? 'HR' : 'Other'; }),
                   );
                 },
               ),
@@ -447,7 +479,7 @@ class _EditEmployeeScreenState extends State<EditEmployeeScreen> {
                     DropdownMenuItem(value: 'accountant', child: Text(S.accountant)),
                     DropdownMenuItem(value: 'warehouse', child: Text(S.warehouse)),
                   ],
-                  onChanged: (v) => setState(() => _selectedType = v!),
+                  onChanged: (v) => setState(() { _selectedType = v!; _departmentController.text = {'general': 'Other', 'sales': 'Sales', 'accountant': 'Accountant', 'warehouse': 'Ware-House'}[v] ?? 'Other'; }),
                 ),
               SizedBox(height: 16),
               // Geofence section

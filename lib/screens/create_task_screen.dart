@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
@@ -29,6 +29,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String? _attachmentUrl;
   bool _uploadingAttachment = false;
   final _itemCodeController = TextEditingController();
+  String _codeType = 'qr'; // 'qr' | 'barcode' | 'both'
 
   @override
   void initState() {
@@ -86,16 +87,20 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _pickAttachment() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked == null) return;
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.any,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final path = result.files.single.path;
+    if (path == null) return;
     setState(() {
-      _attachment = File(picked.path);
+      _attachment = File(path);
       _attachmentUrl = null;
       _uploadingAttachment = true;
     });
     try {
-      final res = await ApiService().uploadTaskAttachment(File(picked.path));
+      final res = await ApiService().uploadTaskAttachment(File(path));
       if (mounted) {
         setState(() {
           _attachmentUrl = res['url'] as String?;
@@ -145,6 +150,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         itemCode: isWarehouse && _itemCodeController.text.trim().isNotEmpty
             ? _itemCodeController.text.trim()
             : null,
+        codeType: isWarehouse ? _codeType : null,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -258,15 +264,45 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                 }
                 return Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: TextFormField(
-                    controller: _itemCodeController,
-                    style: TextStyle(color: context.colors.textPrimary),
-                    decoration: InputDecoration(
-                      labelText: S.itemCode,
-                      helperText: S.itemCodeHelp,
-                      prefixIcon: Icon(Icons.qr_code_2,
-                          color: context.colors.textSecondary),
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextFormField(
+                        controller: _itemCodeController,
+                        style: TextStyle(color: context.colors.textPrimary),
+                        decoration: InputDecoration(
+                          labelText: S.itemCode,
+                          helperText: S.itemCodeHelp,
+                          prefixIcon: Icon(Icons.qr_code_2,
+                              color: context.colors.textSecondary),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(S.codeType,
+                          style: TextStyle(
+                              color: context.colors.textSecondary,
+                              fontSize: 13)),
+                      const SizedBox(height: 6),
+                      SegmentedButton<String>(
+                        segments: [
+                          ButtonSegment(
+                              value: 'qr',
+                              label: Text(S.qrCode),
+                              icon: const Icon(Icons.qr_code_2, size: 18)),
+                          ButtonSegment(
+                              value: 'barcode',
+                              label: Text(S.barcode),
+                              icon: const Icon(Icons.barcode_reader, size: 18)),
+                          ButtonSegment(
+                              value: 'both',
+                              label: Text(S.bothCodes),
+                              icon: const Icon(Icons.dashboard, size: 18)),
+                        ],
+                        selected: {_codeType},
+                        onSelectionChanged: (s) =>
+                            setState(() => _codeType = s.first),
+                      ),
+                    ],
                   ),
                 );
               }),

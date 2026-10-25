@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ThemeProvider extends ChangeNotifier {
   static const _key = 'theme_mode';
 
-  ThemeMode _mode = ThemeMode.dark;
+  // Default to light mode (#25). Only an explicit saved 'dark' preference opts
+  // back into dark; a fresh install or missing pref stays light.
+  ThemeMode _mode = ThemeMode.light;
 
   ThemeMode get mode => _mode;
   bool get isDark => _mode == ThemeMode.dark;
@@ -15,7 +17,7 @@ class ThemeProvider extends ChangeNotifier {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    _mode = prefs.getString(_key) == 'light' ? ThemeMode.light : ThemeMode.dark;
+    _mode = prefs.getString(_key) == 'dark' ? ThemeMode.dark : ThemeMode.light;
     notifyListeners();
   }
 

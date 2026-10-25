@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../config/app_theme.dart';
 import '../models/employee.dart';
 import '../providers/auth_provider.dart';
@@ -8,7 +9,6 @@ import 'attendance_screen.dart';
 import 'requests_screen.dart';
 import 'manage_requests_screen.dart';
 import 'profile_screen.dart';
-import '../l10n/app_localizations.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -20,6 +20,20 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0; // Will be set to Home in build
   bool _initialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _requestPermissions());
+  }
+
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.camera,
+      Permission.location,
+      Permission.notification,
+    ].request();
+  }
 
   List<Widget> _getScreens(UserRole role) {
     if (role == UserRole.superAdmin) {
@@ -54,7 +68,12 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
-    final role = context.watch<AuthProvider>().employee?.role ?? UserRole.employee;
+    // Rebuild only when the role actually changes — not on every AuthProvider
+    // notifyListeners (profile save, image upload, on-hold toggle). Watching the
+    // whole provider made the bottom nav bar visibly rebuild during those async
+    // operations.
+    final role = context.select<AuthProvider, UserRole>(
+        (a) => a.employee?.role ?? UserRole.employee);
     final screens = _getScreens(role);
     // Default to Home on first build
     if (!_initialized && screens.length > 1) {
@@ -63,12 +82,16 @@ class _MainShellState extends State<MainShell> {
     }
     final safeIndex = _currentIndex.clamp(0, screens.length - 1);
 
+    // Hide the bottom nav while the keyboard is up — otherwise it floats above
+    // the keyboard and covers the field/buttons the user is typing into.
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+
     return Scaffold(
       body: IndexedStack(
         index: safeIndex,
         children: screens,
       ),
-      bottomNavigationBar: _buildBottomNav(role),
+      bottomNavigationBar: keyboardOpen ? null : _buildBottomNav(role),
     );
   }
 
@@ -84,24 +107,38 @@ class _MainShellState extends State<MainShell> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: role == UserRole.superAdmin
-                ? [
-                    _buildNavItem(0, Icons.person_outline, Icons.person),
-                    _buildHomeButton(1),
-                  ]
-                : role == UserRole.branchAdmin
+            // Each item gets an equal share of the width so icons (and the round
+            // home button) never crowd or overlap on narrow devices.
+            children: (role == UserRole.superAdmin
                     ? [
                         _buildNavItem(0, Icons.person_outline, Icons.person),
                         _buildHomeButton(1),
-                        _buildNavItem(2, Icons.description_outlined, Icons.description),
                       ]
-                    : [
-                        _buildNavItem(0, Icons.person_outline, Icons.person),
-                        _buildNavItem(1, Icons.fingerprint_outlined, Icons.fingerprint),
-                        _buildHomeButton(2),
-                        _buildNavItem(3, Icons.description_outlined, Icons.description),
-                      ],
+                    : role == UserRole.branchAdmin
+                        ? [
+                            _buildNavItem(0, Icons.person_outline, Icons.person),
+                            _buildHomeButton(1),
+                            _buildNavItem(2, Icons.description_outlined, Icons.description),
+                          ]
+                        : [
+                            _buildNavItem(0, Icons.person_outline, Icons.person),
+                            _buildNavItem(1, Icons.fingerprint_outlined, Icons.fingerprint),
+                            _buildHomeButton(2),
+                            _buildNavItem(3, Icons.description_outlined, Icons.description),
+                          ])
+                // Align (not Center) with heightFactor:1 so each slot takes an
+                // equal share of the width and centers its item horizontally,
+                // WITHOUT expanding to fill the bottom-nav slot's full height —
+                // a bare Center grabs all the loose vertical space the Scaffold
+                // offers, collapsing the page body to zero height.
+                .map((item) => Expanded(
+                      child: Align(
+                        alignment: Alignment.center,
+                        heightFactor: 1,
+                        child: item,
+                      ),
+                    ))
+                .toList(),
           ),
         ),
       ),

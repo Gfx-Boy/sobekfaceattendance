@@ -1,11 +1,17 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'api_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._();
   factory NotificationService() => _instance;
   NotificationService._();
+
+  /// Global navigator key so FCM taps (which arrive outside any widget's
+  /// [BuildContext]) can still route to the relevant screen (#17).
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
   String? _currentEmployeeId;
@@ -60,7 +66,37 @@ class NotificationService {
 
   void _handleMessageTap(RemoteMessage message) {
     debugPrint('FCM tap: ${message.data}');
-    // Navigate based on message data if needed
+    final route = _routeForData(message.data);
+    if (route == null) return;
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return;
+    navigator.pushNamed(route);
+  }
+
+  /// Maps the data payload of a push notification to an in-app route. The
+  /// backend sends either an explicit `route` or a snake_case `type` (the
+  /// same strings AppNotification._parseType recognises).
+  String? _routeForData(Map<String, dynamic> data) {
+    final explicit = data['route']?.toString();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    switch (data['type']?.toString()) {
+      case 'task_assigned':
+      case 'task_status':
+        return '/tasks';
+      case 'request_approved':
+      case 'request_review':
+      case 'request_rejected':
+        return '/my-requests';
+      case 'new_request':
+        return '/manage-requests';
+      case 'payslip_created':
+        return '/payslips';
+      case 'appraisal_started':
+      case 'appraisal_submitted':
+        return '/appraisals';
+      default:
+        return '/notifications';
+    }
   }
 
   Future<void> unregister() async {

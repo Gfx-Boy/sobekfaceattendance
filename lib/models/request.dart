@@ -43,6 +43,7 @@ class AppRequest {
   final String? comment;
   final String? reviewedBy;
   final DateTime? reviewedAt;
+  final Map<String, dynamic> extraFields;
 
   AppRequest({
     required this.id,
@@ -61,6 +62,7 @@ class AppRequest {
     this.comment,
     this.reviewedBy,
     this.reviewedAt,
+    this.extraFields = const {},
   });
 
   factory AppRequest.fromJson(Map<String, dynamic> json) {
@@ -84,7 +86,7 @@ class AppRequest {
       ),
       title: json['title'] as String,
       description: json['description'] as String,
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       startDate: json['start_date'] != null
           ? DateTime.tryParse(json['start_date'] as String)
           : null,
@@ -94,8 +96,10 @@ class AppRequest {
       comment: json['comment'] as String?,
       reviewedBy: json['reviewed_by'] as String?,
       reviewedAt: json['reviewed_at'] != null
-          ? DateTime.tryParse(json['reviewed_at'] as String)
+          ? DateTime.tryParse(json['reviewed_at'] as String)?.toLocal()
           : null,
+      extraFields: (json['extra_fields'] as Map?)?.cast<String, dynamic>() ??
+          const {},
     );
   }
 
@@ -115,6 +119,7 @@ class AppRequest {
       'comment': comment,
       'reviewed_by': reviewedBy,
       'reviewed_at': reviewedAt?.toIso8601String(),
+      'extra_fields': extraFields,
     };
   }
 

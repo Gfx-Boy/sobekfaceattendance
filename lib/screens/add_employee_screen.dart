@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../config/app_theme.dart';
@@ -25,14 +26,13 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _positionController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
   final _radiusController = TextEditingController(text: '200');
   LatLng? _pickedLocation;
   String _selectedRole = 'employee';
   String _selectedType = 'general';
-  String _selectedDepartment = 'sales';
+  String _selectedDepartment = 'Other';
   bool _loading = false;
   bool _enableGeofence = false;
   bool _obscurePassword = true;
@@ -87,7 +87,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _phoneController.dispose();
-    _positionController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     _radiusController.dispose();
@@ -95,7 +94,26 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
   }
 
   Future<void> _captureReferenceImage() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+    if (!status.isGranted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Camera permission is required to capture face image.'),
+          backgroundColor: AppTheme.checkOutRed,
+        ),
+      );
+      return;
+    }
+
     final cameras = await availableCameras();
+    if (cameras.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: const Text('No camera available on this device.'), backgroundColor: AppTheme.checkOutRed),
+      );
+      return;
+    }
     final frontCamera = cameras.firstWhere(
       (c) => c.lensDirection == CameraLensDirection.front,
       orElse: () => cameras.first,
@@ -146,7 +164,6 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
         employeeType: _selectedType,
         branchId: _selectedBranchId,
         branchName: _selectedBranchName,
-        position: _positionController.text.trim().isNotEmpty ? _positionController.text.trim() : null,
         phone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
         allowedLatitude: _enableGeofence && _latitudeController.text.isNotEmpty
             ? double.tryParse(_latitudeController.text.trim())
@@ -218,15 +235,13 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
               // Department dropdown
               _dropdownField(S.department, _selectedDepartment, {
                 'HR': 'HR',
-                'sales': S.sales,
-                'accountant': S.accountant,
-                'warehouse': S.warehouse,
+                'Sales': S.sales,
+                'Accountant': S.accountant,
+                'Ware-House': S.warehouse,
                 'IT': S.itDepartment,
                 'Management': S.management,
-                'other': S.other,
+                'Other': S.other,
               }, (v) => setState(() => _selectedDepartment = v!)),
-              const SizedBox(height: 12),
-              _buildField(_positionController, S.positionOptional, Icons.badge_outlined),
               const SizedBox(height: 12),
               _buildField(_phoneController, S.phone, Icons.phone_outlined, keyboardType: TextInputType.phone, validator: (v) {
                 if (v == null || v.isEmpty) return S.phoneRequired;
@@ -250,7 +265,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                     if (mounted) setState(() => _selectedRole = roleOptions.keys.first);
                   });
                 }
-                return _dropdownField(S.role, roleOptions.containsKey(_selectedRole) ? _selectedRole : roleOptions.keys.first, roleOptions, (v) => setState(() => _selectedRole = v!));
+                return _dropdownField(S.role, roleOptions.containsKey(_selectedRole) ? _selectedRole : roleOptions.keys.first, roleOptions, (v) => setState(() { _selectedRole = v!; _selectedDepartment = v == 'hr' || v == 'branchAdmin' ? 'HR' : 'Other'; }));
               }),
               const SizedBox(height: 12),
               // Branch selection
@@ -297,7 +312,7 @@ class _AddEmployeeScreenState extends State<AddEmployeeScreen> {
                   'sales': S.sales,
                   'accountant': S.accountant,
                   'warehouse': S.warehouse,
-                }, (v) => setState(() => _selectedType = v!)),
+                }, (v) => setState(() { _selectedType = v!; _selectedDepartment = {'general': 'Other', 'sales': 'Sales', 'accountant': 'Accountant', 'warehouse': 'Ware-House'}[v] ?? 'Other'; })),
               const SizedBox(height: 16),
               // Geofence section
               _buildGeofenceSection(),

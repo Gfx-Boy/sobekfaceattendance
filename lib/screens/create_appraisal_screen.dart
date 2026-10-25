@@ -58,14 +58,16 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
           : null;
       List<Employee> employees = await ApiService().getAllEmployees(branchId: branchId);
       // Role restrictions:
-      //  - HR cannot evaluate themselves or the branch admin
-      //  - Branch admin cannot evaluate themselves
+      //  - HR cannot evaluate themselves, the branch admin, or another HR (#14:
+      //    HR is only evaluated by the branch admin — peers are the same level)
+      //  - Branch admin cannot evaluate themselves (#15)
       //  - Nobody can evaluate the super admin
       if (me != null) {
         employees = employees.where((e) {
           if (e.id == me.id) return false;
           if (e.role == UserRole.superAdmin) return false;
           if (me.role == UserRole.hr && e.role == UserRole.branchAdmin) return false;
+          if (me.role == UserRole.hr && e.role == UserRole.hr) return false;
           return true;
         }).toList();
       }
@@ -82,11 +84,19 @@ class _CreateAppraisalScreenState extends State<CreateAppraisalScreen> {
     setState(() => _loading = true);
     try {
       final me = context.read<AuthProvider>().employee;
+      Employee? target;
+      for (final e in _employees) {
+        if (e.id == _selectedEmployeeId) { target = e; break; }
+      }
       await ApiService().createAppraisal(
         employeeId: _selectedEmployeeId!,
         employeeName: _selectedEmployeeName ?? '',
         evaluatorId: me?.id ?? '',
         evaluatorName: me?.name ?? '',
+        // #23/#37 — backend uses evaluator_role to block HR appraising a
+        // Branch Admin; #18 — branch_id resolves the active appraisal cycle.
+        evaluatorRole: me?.role.name ?? '',
+        branchId: me?.branchId ?? target?.branchId ?? '',
         period: _periodController.text.trim(),
         scores: {
           'quality': _qualityScore,

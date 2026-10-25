@@ -28,6 +28,7 @@ class AttendanceProvider extends ChangeNotifier {
 
   AttendanceStep _currentStep = AttendanceStep.idle;
   File? _capturedImage;
+  File? _controlImage;
   Position? _currentPosition;
   VerificationResult? _verificationResult;
   List<AttendanceRecord> _attendanceHistory = [];
@@ -118,6 +119,17 @@ class AttendanceProvider extends ChangeNotifier {
 
       _capturedImage = await _cameraService.captureImage();
 
+      // Silent control frame ~1s later for the server's passive liveness
+      // check: a photo/screen held to the camera shows no facial motion
+      // between the two frames and gets rejected as "not live". No UX change.
+      _controlImage = null;
+      try {
+        await Future.delayed(const Duration(milliseconds: 950));
+        _controlImage = await _cameraService.captureImage();
+      } catch (_) {
+        // Control frame is best-effort; the primary capture stands alone.
+      }
+
       _currentStep = AttendanceStep.captured;
       notifyListeners();
     } catch (e) {
@@ -136,6 +148,10 @@ class AttendanceProvider extends ChangeNotifier {
     try {
       _currentStep = AttendanceStep.gettingLocation;
       _locationException = null;
+      // Drop any stale fix — a failed fetch must NEVER fall back to an old
+      // position, or attendance could be marked with yesterday's location
+      // while GPS is off (found in client video, round 6).
+      _currentPosition = null;
       notifyListeners();
 
       _currentPosition = await _locationService.getCurrentLocation();
@@ -176,6 +192,44 @@ class AttendanceProvider extends ChangeNotifier {
       _verificationResult = await _apiService.markAttendance(
         employeeId: employeeId,
         imageFile: _capturedImage!,
+        controlImageFile: _controlImage,
+        latitude: _currentPosition!.latitude,
+        longitude: _currentPosition!.longitude,
+        type: _attendanceType,
+      );
+
+      if (_verificationResult!.isVerified) {
+        _currentStep = AttendanceStep.success;
+      } else {
+        _error = _verificationResult!.message;
+        _currentStep = AttendanceStep.failed;
+      }
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      _currentStep = AttendanceStep.failed;
+      notifyListeners();
+    }
+  }
+
+  /// Attendance via a completed AWS Face Liveness session — the server
+  /// verifies the scan proved a live person and face-matches its own audit
+  /// image, so no photo upload is involved in the decision.
+  Future<void> submitAttendanceWithLiveness(
+      String employeeId, String sessionId) async {
+    if (_currentPosition == null) {
+      _error = 'Location not available';
+      _currentStep = AttendanceStep.failed;
+      notifyListeners();
+      return;
+    }
+    try {
+      _currentStep = AttendanceStep.verifying;
+      notifyListeners();
+
+      _verificationResult = await _apiService.markAttendance(
+        employeeId: employeeId,
+        livenessSessionId: sessionId,
         latitude: _currentPosition!.latitude,
         longitude: _currentPosition!.longitude,
         type: _attendanceType,
@@ -218,6 +272,7 @@ class AttendanceProvider extends ChangeNotifier {
   void reset() {
     _currentStep = AttendanceStep.idle;
     _capturedImage = null;
+    _controlImage = null;
     _currentPosition = null;
     _verificationResult = null;
     _error = null;

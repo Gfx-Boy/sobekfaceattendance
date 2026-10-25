@@ -18,6 +18,7 @@ class ManageRequestsScreen extends StatefulWidget {
 class _ManageRequestsScreenState extends State<ManageRequestsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<AppRequest> _requests = [];
+  final Map<String, UserRole> _roleById = {};
   bool _loading = true;
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -47,15 +48,48 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
           ? employee?.branchId
           : null;
       _requests = await ApiService().getAllRequests(branchId: branchId);
+      // Build a creator-role map so we can apply the #19 visibility cycle.
+      _roleById.clear();
+      try {
+        final emps = await ApiService().getAllEmployees(branchId: branchId);
+        for (final e in emps) {
+          _roleById[e.id] = e.role;
+        }
+      } catch (_) {}
       if (mounted) setState(() => _loading = false);
     } catch (e) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  /// Applies the request-visibility cycle (#14, #19):
+  ///  - never show the viewer's own request (they track it in My Requests);
+  ///  - HR sees only employee requests in the branch;
+  ///  - Branch Admin sees employee + HR requests in the branch (not own);
+  ///  - Super Admin sees everything (incl. branch-admin requests).
+  List<AppRequest> get _visibleRequests {
+    final me = context.read<AuthProvider>().employee;
+    if (me == null) return _requests;
+    return _requests.where((r) {
+      if (r.employeeId == me.id) return false; // #14
+      final creator = _roleById[r.employeeId] ?? UserRole.employee;
+      switch (me.role) {
+        case UserRole.superAdmin:
+          return true;
+        case UserRole.branchAdmin:
+          return creator == UserRole.employee || creator == UserRole.hr;
+        case UserRole.hr:
+          return creator == UserRole.employee;
+        case UserRole.employee:
+          return false;
+      }
+    }).toList();
+  }
+
   List<AppRequest> _filterByStatus(String status) {
+    final visible = _visibleRequests;
     Iterable<AppRequest> base =
-        status == 'all' ? _requests : _requests.where((r) => r.status.name == status);
+        status == 'all' ? visible : visible.where((r) => r.status.name == status);
     if (_searchQuery.isNotEmpty) {
       base = base.where((r) {
         return r.title.toLowerCase().contains(_searchQuery) ||
@@ -69,11 +103,15 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
 
   Future<void> _reviewRequest(AppRequest request, String status) async {
     final employee = context.read<AuthProvider>().employee;
+    // #15 — let the reviewer attach an optional comment when approving/rejecting.
+    final comment = await _askReviewComment(status);
+    if (comment == null) return; // cancelled
     try {
       await ApiService().reviewRequest(
         request.id,
         status,
         reviewedBy: employee?.name ?? 'Admin',
+        comment: comment.isEmpty ? null : comment,
       );
       _loadRequests();
       if (mounted) {
@@ -88,6 +126,43 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
         );
       }
     }
+  }
+
+  /// Prompts for an optional review comment. Returns the entered text (may be
+  /// empty) on confirm, or null if the reviewer cancelled.
+  Future<String?> _askReviewComment(String status) async {
+    final controller = TextEditingController();
+    final isApprove = status == 'approved';
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.colors.cardBg,
+        title: Text(isApprove ? S.approve : S.reject),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          autofocus: true,
+          style: TextStyle(color: context.colors.textPrimary),
+          decoration: InputDecoration(
+            hintText: S.notesOptional,
+            border:
+                OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: Text(S.cancel)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    isApprove ? AppTheme.accentGreen : AppTheme.checkOutRed),
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: Text(isApprove ? S.approve : S.reject,
+                style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -150,7 +225,8 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
       return Center(child: Text(S.noRequests, style: TextStyle(color: context.colors.textSecondary)));
     }
     return ListView.builder(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.fromLTRB(
+          12, 12, 12, 12 + MediaQuery.of(context).viewPadding.bottom),
       itemCount: requests.length,
       itemBuilder: (context, index) => _requestCard(requests[index]),
     );
@@ -300,6 +376,7 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
               _detailRow(Icons.date_range, S.from, DateFormat('MMM d, y', S.locale.languageCode).format(request.startDate!)),
             if (request.endDate != null)
               _detailRow(Icons.date_range, S.end, DateFormat('MMM d, y', S.locale.languageCode).format(request.endDate!)),
+            ..._buildExtraFields(request),
             SizedBox(height: 12),
             Text(S.description, style: TextStyle(color: context.colors.textPrimary, fontWeight: FontWeight.w600)),
             SizedBox(height: 6),
@@ -316,6 +393,52 @@ class _ManageRequestsScreenState extends State<ManageRequestsScreen> with Single
         ),
       ),
     );
+  }
+
+  /// Renders the request's type-specific extra fields. Permission requests
+  /// get an explicit time window (e.g. 14:30 – 16:30) instead of just a bare
+  /// "2 hours" (#13).
+  List<Widget> _buildExtraFields(AppRequest request) {
+    final extra = request.extraFields;
+    if (extra.isEmpty) return const [];
+    final rows = <Widget>[];
+
+    // Permission: show the actual window From–To plus the duration.
+    final permTime = extra['permission_time'] as String?;
+    final permHours = extra['permission_hours']?.toString();
+    if (permTime != null && permTime.isNotEmpty) {
+      String windowText = permTime;
+      final hrs = int.tryParse(permHours ?? '');
+      final parts = permTime.split(':');
+      if (hrs != null && parts.length == 2) {
+        final sh = int.tryParse(parts[0]);
+        final sm = int.tryParse(parts[1]);
+        if (sh != null && sm != null) {
+          final endH = (sh + hrs) % 24;
+          windowText =
+              '$permTime – ${endH.toString().padLeft(2, '0')}:${sm.toString().padLeft(2, '0')}';
+        }
+      }
+      if (permHours != null && permHours.isNotEmpty) {
+        windowText += '  (${S.permissionHoursLabel(permHours)})';
+      }
+      rows.add(_detailRow(Icons.schedule, S.permissionWindow, windowText));
+    }
+
+    // Any other extra fields: show with a prettified label.
+    const skip = {'permission_time', 'permission_hours'};
+    extra.forEach((key, value) {
+      if (skip.contains(key)) return;
+      if (value == null || value.toString().trim().isEmpty) return;
+      rows.add(_detailRow(Icons.info_outline, _prettyKey(key), value.toString()));
+    });
+    return rows;
+  }
+
+  String _prettyKey(String key) {
+    final words = key.split('_').where((w) => w.isNotEmpty).map((w) =>
+        w[0].toUpperCase() + (w.length > 1 ? w.substring(1) : ''));
+    return words.join(' ');
   }
 
   Widget _detailRow(IconData icon, String label, String value) {

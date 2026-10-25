@@ -98,13 +98,41 @@ class _AttendanceCard extends StatelessWidget {
     final timeFormat = DateFormat('hh:mm a', loc);
     final isSignOut = record.type == 'sign_out';
     final isBreak = record.type == 'break_start' || record.type == 'break_end';
-    final typeLabel = switch (record.type) {
-      'sign_out' => S.signOut,
-      'break_start' => S.breakStart,
-      'break_end' => S.breakEnd,
-      _ => S.signIn,
-    };
-    final typeColor = isBreak ? AppTheme.warningAmber : (isSignOut ? AppTheme.checkOutRed : AppTheme.accentGreen);
+    final isDayStatus = record.type == 'day_status';
+    String dayStatusLabel(String? s) => switch (s) {
+          'vacation' => S.vacation,
+          'holiday' => S.holiday,
+          'absent' => S.absent,
+          'attend' => S.signIn,
+          'permission' => S.permission,
+          'business_mission' => S.businessMission,
+          'sick' => S.sickLeave,
+          _ => s ?? S.dayStatus,
+        };
+    final typeLabel = isDayStatus
+        ? dayStatusLabel(record.dayStatus)
+        : switch (record.type) {
+            'sign_out' => S.signOut,
+            'break_start' => S.breakStart,
+            'break_end' => S.breakEnd,
+            _ => S.signIn,
+          };
+    // Same color vocabulary as the attendance calendar / HR day-status grid.
+    final Color typeColor = isDayStatus
+        ? switch (record.dayStatus) {
+            'vacation' => Colors.orange,
+            'holiday' => Colors.teal,
+            'absent' => AppTheme.checkOutRed,
+            'sick' => Colors.purple,
+            'business_mission' => AppTheme.primaryBlue,
+            _ => AppTheme.accentGreen,
+          }
+        : (isBreak
+            ? AppTheme.warningAmber
+            : (isSignOut ? AppTheme.checkOutRed : AppTheme.accentGreen));
+    final IconData typeIcon = isDayStatus
+        ? Icons.event_note
+        : (isBreak ? Icons.coffee : (isSignOut ? Icons.logout : Icons.login));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -123,7 +151,7 @@ class _AttendanceCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                isBreak ? Icons.coffee : (isSignOut ? Icons.logout : Icons.login),
+                typeIcon,
                 color: record.status == AttendanceStatus.success
                     ? typeColor
                     : AppTheme.checkOutRed,
@@ -148,7 +176,11 @@ class _AttendanceCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          dateFormat.format(record.timestamp),
+                          isDayStatus && record.date != null
+                              ? dateFormat.format(
+                                  DateTime.tryParse(record.date!) ??
+                                      record.timestamp)
+                              : dateFormat.format(record.timestamp),
                           style: const TextStyle(
                             fontWeight: FontWeight.w500,
                             fontSize: 13,
@@ -159,7 +191,9 @@ class _AttendanceCard extends StatelessWidget {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    timeFormat.format(record.timestamp),
+                    isDayStatus
+                        ? S.adminSet
+                        : timeFormat.format(record.timestamp),
                     style: TextStyle(
                       color: context.colors.textSecondary,
                       fontSize: 13,

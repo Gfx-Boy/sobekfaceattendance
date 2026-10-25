@@ -74,7 +74,7 @@ class _AppraisalCyclesScreenState extends State<AppraisalCyclesScreen> {
                                   color: context.colors.textSecondary))),
                     ])
                   : ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
                       itemCount: _cycles.length,
                       itemBuilder: (_, i) => _cycleCard(_cycles[i], canStart),
                     ),

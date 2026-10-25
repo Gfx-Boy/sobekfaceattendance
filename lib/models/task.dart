@@ -24,6 +24,7 @@ class Task {
   final DateTime? completedAt;
   final String taskType; // 'general' | 'warehouse'
   final String? itemCode; // for warehouse tasks
+  final String codeType; // 'qr' | 'barcode' | 'both'
   final int? countedTotal; // filled by warehouse employee on completion
 
   Task({
@@ -45,6 +46,7 @@ class Task {
     this.completedAt,
     this.taskType = 'general',
     this.itemCode,
+    this.codeType = 'qr',
     this.countedTotal,
   });
 
@@ -62,7 +64,7 @@ class Task {
         (e) => e.name == json['status'],
         orElse: () => TaskStatus.toDo,
       ),
-      createdAt: DateTime.parse(json['created_at'] as String),
+      createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       attachments: (json['attachments'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList(),
@@ -71,10 +73,11 @@ class Task {
       completionAttachments: (json['completion_attachments'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList(),
-      startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String) : null,
-      completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String) : null,
+      startedAt: json['started_at'] != null ? DateTime.tryParse(json['started_at'] as String)?.toLocal() : null,
+      completedAt: json['completed_at'] != null ? DateTime.tryParse(json['completed_at'] as String)?.toLocal() : null,
       taskType: json['task_type'] as String? ?? 'general',
       itemCode: json['item_code'] as String?,
+      codeType: json['code_type'] as String? ?? 'qr',
       countedTotal: (json['counted_total'] as num?)?.toInt(),
     );
   }
@@ -99,6 +102,7 @@ class Task {
       'completed_at': completedAt?.toIso8601String(),
       'task_type': taskType,
       'item_code': itemCode,
+      'code_type': codeType,
       'counted_total': countedTotal,
     };
   }

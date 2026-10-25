@@ -62,7 +62,7 @@ router.post('/', async (req, res) => {
   try {
     const {
       title, description, assigned_to, assigned_by, due_date, attachments,
-      task_type, item_code,
+      task_type, item_code, code_type,
     } = req.body;
 
     if (!title || !assigned_to || !assigned_by || !due_date) {
@@ -97,6 +97,7 @@ router.post('/', async (req, res) => {
       attachments: attachments || [],
       task_type: task_type || 'general',
       item_code: item_code || null,
+      code_type: code_type || 'qr',
       counted_total: null,
     };
 
@@ -147,6 +148,38 @@ router.get('/employee/:employeeId', async (req, res) => {
   } catch (error) {
     console.error('List tasks error:', error);
     res.status(500).json({ error: 'Failed to list tasks' });
+  }
+});
+
+// GET /api/tasks/branch-assigned/:branchId — every task assigned to an
+// employee of this branch, regardless of which manager created it. Lets a
+// Branch Admin and HR both see tasks assigned within their branch (#9/#28).
+router.get('/branch-assigned/:branchId', async (req, res) => {
+  try {
+    const branchId = req.params.branchId;
+    const tasks = await listJSON('data/tasks/');
+    // Cache employee → branch lookups to avoid repeated fetches.
+    const branchOf = {};
+    const resolveBranch = async (empId) => {
+      if (!empId) return null;
+      if (branchOf[empId] !== undefined) return branchOf[empId];
+      const emp = await getJSON(employeeKey(empId));
+      branchOf[empId] = emp ? (emp.branch_id || null) : null;
+      return branchOf[empId];
+    };
+    const out = [];
+    for (const t of tasks) {
+      // Include if either the assignee or the assigner belongs to the branch.
+      const toBranch = await resolveBranch(t.assigned_to);
+      const byBranch = await resolveBranch(t.assigned_by);
+      if (toBranch === branchId || byBranch === branchId) out.push(t);
+    }
+    out.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    await enrichWithNames(out);
+    res.json(out);
+  } catch (error) {
+    console.error('List branch-assigned tasks error:', error);
+    res.status(500).json({ error: 'Failed to list branch tasks' });
   }
 });
 
